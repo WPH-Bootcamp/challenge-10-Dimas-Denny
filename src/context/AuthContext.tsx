@@ -1,59 +1,47 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState } from "react";
+import { api } from "@/lib/api";
 
 type User = {
+  id: number;
   username: string;
-  avatar?: string;
 };
 
 type AuthContextType = {
   user: User | null;
-  login: (user: User, token: string) => void;
-  logout: () => void;
+  loading: boolean;
 };
 
-const AuthContext = createContext<AuthContextType | null>(null);
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  loading: true,
+});
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem("user");
-    if (!storedUser) return;
+    const checkAuth = async () => {
+      try {
+        const res = await api.get("/auth/me");
+        setUser(res.data);
+      } catch {
+        setUser(null);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    try {
-      const parsedUser = JSON.parse(storedUser) as User;
-      setUser(parsedUser);
-    } catch (error) {
-      console.error("Failed to parse user from localStorage", error);
-      setUser(null);
-    }
+    checkAuth();
   }, []);
 
-  const login = (user: User, token: string) => {
-    localStorage.setItem("user", JSON.stringify(user));
-    localStorage.setItem("token", token);
-    setUser(user);
-  };
-
-  const logout = () => {
-    localStorage.removeItem("user");
-    localStorage.removeItem("token");
-    setUser(null);
-  };
-
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, loading }}>
       {children}
     </AuthContext.Provider>
   );
 }
 
-export const useAuth = () => {
-  const ctx = useContext(AuthContext);
-  if (!ctx) {
-    throw new Error("useAuth must be used inside AuthProvider");
-  }
-  return ctx;
-};
+export const useAuth = () => useContext(AuthContext);

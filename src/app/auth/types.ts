@@ -1,9 +1,9 @@
-export interface LoginPayLoad {
-  email: "string";
-  password: "string";
+export interface ILoginPayLoad {
+  email: string;
+  password: string;
 }
 
-export interface LoginResponse {
+export interface ILoginResponse {
   success: boolean;
   message: string;
   data: {

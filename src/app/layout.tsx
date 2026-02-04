@@ -24,8 +24,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="id">
-      <body className="bg-white text-black">
+    <html lang="en">
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-white text-neutral-900`}
+      >
         <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
