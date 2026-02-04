@@ -1,93 +1,123 @@
 "use client";
 
-import Link from "next/link";
-import { Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Search } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { api } from "@/lib/api";
 
 type Article = {
   id: number;
   title: string;
-  description?: string; // kalau API pakai "content", nanti dimapping
+  description?: string;
+  content?: string;
 };
 
 export default function SearchPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const initialQ = useMemo(() => searchParams.get("q") || "", [searchParams]);
+  const qFromUrl = searchParams.get("q") || "";
 
-  const [query, setQuery] = useState(initialQ);
+  const [query, setQuery] = useState(qFromUrl);
+  const [debouncedQuery, setDebouncedQuery] = useState(qFromUrl);
+
   const [results, setResults] = useState<Article[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // request id untuk race-condition safe
-  const requestIdRef = useRef(0);
+  // Race-condition safe: simpan controller request aktif
+  const activeControllerRef = useRef<AbortController | null>(null);
 
-  // Sync state saat URL berubah (mis. dari header -> /search?q=...)
+  // Sync input kalau user back/forward atau url berubah
   useEffect(() => {
-    setQuery(initialQ);
-  }, [initialQ]);
+    setQuery(qFromUrl);
+    setDebouncedQuery(qFromUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qFromUrl]);
 
-  // Debounced search
+  // Debounce typing (400ms)
   useEffect(() => {
-    const q = query.trim();
+    const t = setTimeout(() => {
+      setDebouncedQuery(query.trim());
+    }, 400);
+    return () => clearTimeout(t);
+  }, [query]);
 
-    // Kalau kosong, reset state
-    if (!q) {
+  // Update URL saat user mengetik (tanpa nambah history)
+  useEffect(() => {
+    const trimmed = query.trim();
+    const next = trimmed
+      ? `/search?q=${encodeURIComponent(trimmed)}`
+      : "/search";
+
+    // Hindari replace berulang kalau sudah sama
+    const current = qFromUrl.trim();
+    if (trimmed === current) return;
+
+    router.replace(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+
+  // Fetch results (debounced + abort previous)
+  useEffect(() => {
+    // Abort request sebelumnya
+    if (activeControllerRef.current) {
+      activeControllerRef.current.abort();
+    }
+
+    if (!debouncedQuery) {
       setResults([]);
       setLoading(false);
       setError("");
       return;
     }
 
-    const currentRequestId = ++requestIdRef.current;
+    const controller = new AbortController();
+    activeControllerRef.current = controller;
 
-    const delay = setTimeout(async () => {
+    const run = async () => {
       try {
         setLoading(true);
         setError("");
 
-        // Endpoint kamu: /posts/search?q=
-        const res = await api.get(`/posts/search?q=${encodeURIComponent(q)}`);
+        const res = await api.get("/posts/search", {
+          params: { q: debouncedQuery },
+          signal: controller.signal,
+        });
 
-        // Pastikan hanya request terbaru yang boleh set state
-        if (requestIdRef.current !== currentRequestId) return;
+        const data = res.data?.data ?? res.data ?? [];
 
-        const raw = res.data?.data ?? [];
-
-        // Mapping aman (kalau API return "content" bukan "description")
-        const mapped: Article[] = (Array.isArray(raw) ? raw : []).map(
-          (item: any) => ({
-            id: item.id,
-            title: item.title,
-            description: item.description ?? item.content ?? "",
-          }),
-        );
+        // Normalize
+        const mapped: Article[] = Array.isArray(data)
+          ? data.map((it: any) => ({
+              id: it.id,
+              title: it.title,
+              description: it.description ?? it.content ?? "",
+              content: it.content ?? "",
+            }))
+          : [];
 
         setResults(mapped);
-      } catch (e) {
-        if (requestIdRef.current !== currentRequestId) return;
-        setError("Failed to search. Please try again.");
-        setResults([]);
+      } catch (err: any) {
+        // Ignore abort error
+        if (err?.name === "CanceledError") return;
+        if (err?.code === "ERR_CANCELED") return;
+
+        if (controller.signal.aborted) return;
+
+        setError(err?.response?.data?.message || "Failed to search");
       } finally {
-        if (requestIdRef.current === currentRequestId) setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
-    }, 500);
+    };
 
-    return () => clearTimeout(delay);
-  }, [query]);
+    run();
 
-  // Update URL saat user mengetik (tanpa bikin navigation berat)
-  // Biar query bisa dishare dan konsisten dengan header
-  useEffect(() => {
-    const q = query.trim();
-    const url = q ? `/search?q=${encodeURIComponent(q)}` : "/search";
-    router.replace(url);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query]);
+    return () => {
+      controller.abort();
+    };
+  }, [debouncedQuery]);
 
   return (
     <div className="min-h-screen bg-white px-6 py-6">
@@ -97,24 +127,20 @@ export default function SearchPage() {
           size={18}
           className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
         />
-
         <input
           autoFocus
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search articles..."
-          className="w-full border rounded-full pl-10 pr-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
+          className="w-full border rounded-xl pl-10 pr-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
         />
       </div>
 
-      {/* Error */}
-      {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
-
-      {/* Loading */}
+      {/* States */}
       {loading && <p className="text-gray-400">Searching...</p>}
+      {!loading && error && <p className="text-red-500">{error}</p>}
 
-      {/* Empty */}
-      {!loading && !error && query.trim() && results.length === 0 && (
+      {!loading && !error && debouncedQuery && results.length === 0 && (
         <p className="text-gray-400">No results found</p>
       )}
 
@@ -124,14 +150,12 @@ export default function SearchPage() {
           <Link
             key={item.id}
             href={`/posts/${item.id}`}
-            className="block border-b pb-4 hover:opacity-80"
+            className="border-b pb-4 hover:bg-gray-50 transition rounded-md px-2 -mx-2"
           >
             <h2 className="font-semibold text-lg">{item.title}</h2>
-            {item.description && (
-              <p className="text-sm text-gray-600 mt-1 line-clamp-2">
-                {item.description}
-              </p>
-            )}
+            <p className="text-sm text-gray-600 mt-1 line-clamp-2">
+              {item.description || item.content || ""}
+            </p>
           </Link>
         ))}
       </div>

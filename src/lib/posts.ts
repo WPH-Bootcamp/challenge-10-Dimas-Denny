@@ -1,11 +1,15 @@
 import { api } from "@/lib/api";
 
 export async function getRecommendedPosts() {
-  const res = await api.get("/posts", {
-    params: {
-      recommended: true,
-    },
-  });
+  // Coba 1: /posts/recommended
+  try {
+    const res = await api.get("/posts/recommended");
+    return res.data?.data ?? res.data ?? [];
+  } catch {
+    // lanjut
+  }
 
-  return res.data?.data || [];
+  // Coba 2: /posts?recommended=true
+  const res2 = await api.get("/posts", { params: { recommended: true } });
+  return res2.data?.data ?? res2.data ?? [];
 }
