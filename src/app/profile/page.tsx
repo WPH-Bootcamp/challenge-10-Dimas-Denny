@@ -994,7 +994,7 @@ export default function ProfilePage() {
 
             {/* PASSWORD TAB (50% width, left) */}
             {tab === "password" && (
-              <div className="w-[538px] h-[344px] bg-white rounded-xl p-4">
+              <div className="w-134.5 h-86 bg-white rounded-xl p-4">
                 {/* Current Password */}
                 <div className="mb-4">
                   <label className="text-sm font-semibold text-gray-900">

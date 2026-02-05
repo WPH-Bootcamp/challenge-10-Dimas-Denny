@@ -70,15 +70,6 @@ export async function getMyPosts(userId?: number | string) {
   return [] as MyPost[];
 }
 
-/**
- * CREATE POST
- * Backend kamu balikin 400 "Image is required", jadi WAJIB kirim image.
- * Pakai multipart/form-data:
- * - title
- * - content
- * - tags (kirim JSON string)
- * - image (File)
- */
 export async function createPost(payload: {
   title: string;
   content: string;
