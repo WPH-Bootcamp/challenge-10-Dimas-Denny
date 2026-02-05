@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Image from "next/image";
 import { Eye, EyeOff, X } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -9,6 +9,7 @@ import { updateProfile } from "@/lib/profile";
 import MobileHeader from "@/components/header/MobileHeader";
 import Link from "next/link";
 import { getMyPosts, type MyPost } from "@/lib/writePost";
+import { api } from "@/lib/api";
 
 const LS_PROFILE_KEY = "profile_v2";
 
@@ -16,6 +17,23 @@ type LocalProfile = {
   name: string;
   headline: string;
   avatarUrl?: string;
+};
+
+type TabKey = "posts" | "password";
+type StatsTab = "like" | "comment";
+
+type LikeUser = {
+  id: number | string;
+  name: string;
+  avatarUrl?: string;
+};
+
+type CommentItem = {
+  id: number | string;
+  name: string;
+  avatarUrl?: string;
+  createdAt: string;
+  text?: string;
 };
 
 function formatDateTime(dateString?: string) {
@@ -31,7 +49,23 @@ function formatDateTime(dateString?: string) {
   });
 }
 
+function formatDateTimeShort(dateString?: string) {
+  if (!dateString) return "-";
+  const d = new Date(dateString);
+  if (isNaN(d.getTime())) return "-";
+  return d.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function readLocalProfile(fallbackName: string): LocalProfile {
+  if (typeof window === "undefined") {
+    return { name: fallbackName, headline: "Frontend Developer" };
+  }
   try {
     const raw = localStorage.getItem(LS_PROFILE_KEY);
     if (!raw) return { name: fallbackName, headline: "Frontend Developer" };
@@ -58,121 +92,84 @@ function toDataUrl(file: File): Promise<string> {
   });
 }
 
-type TabKey = "posts" | "password";
+function pickArray(payload: any) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.data?.data)) return payload.data.data;
+  return [];
+}
 
 export default function ProfilePage() {
   const router = useRouter();
   const { user, loading } = useAuth();
 
-  const [myPosts, setMyPosts] = useState<MyPost[]>([]);
-  const [postsLoading, setPostsLoading] = useState(false);
-  const [postsError, setPostsError] = useState("");
-
   const fallbackName = useMemo(() => {
     return (user as any)?.name || (user as any)?.username || "User";
   }, [user]);
 
-  const userId = useMemo(() => {
-    const raw = (user as any)?.id ?? (user as any)?.userId;
-    const n = Number(raw);
-    return Number.isFinite(n) ? n : null;
-  }, [user]);
-
+  // ===== Profile local cache =====
   const [profile, setProfile] = useState<LocalProfile>({
     name: fallbackName,
     headline: "Frontend Developer",
     avatarUrl: "",
   });
 
-  const [openEdit, setOpenEdit] = useState(false);
-
-  // modal draft states
-  const [draftName, setDraftName] = useState("");
-  const [draftHeadline, setDraftHeadline] = useState("");
-  const [draftAvatarPreview, setDraftAvatarPreview] = useState<string>("");
-  const [draftAvatarFile, setDraftAvatarFile] = useState<File | null>(null);
-  const [savingProfile, setSavingProfile] = useState(false);
-
-  const fileRef = useRef<HTMLInputElement | null>(null);
-
-  // Tabs
-  const [tab, setTab] = useState<TabKey>("posts");
-
-  // Change password state
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmNewPassword, setConfirmNewPassword] = useState("");
-
-  const [showCurrent, setShowCurrent] = useState(false);
-  const [showNew, setShowNew] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
-
-  const [savingPassword, setSavingPassword] = useState(false);
-
-  // Protect route
-  useEffect(() => {
-    if (!loading && !user) router.replace("/auth/login");
-  }, [loading, user, router]);
-
-  // Load local cached profile
   useEffect(() => {
     if (typeof window === "undefined") return;
     const p = readLocalProfile(fallbackName);
     setProfile(p);
   }, [fallbackName]);
 
-  const loadPosts = async () => {
-    if (userId == null) return;
+  // ===== Protect route =====
+  useEffect(() => {
+    if (!loading && !user) router.replace("/auth/login");
+  }, [loading, user, router]);
 
+  // ===== Tabs =====
+  const [tab, setTab] = useState<TabKey>("posts");
+
+  // ===== My posts =====
+  const [myPosts, setMyPosts] = useState<MyPost[]>([]);
+  const [postsLoading, setPostsLoading] = useState(false);
+  const [postsError, setPostsError] = useState("");
+
+  const loadPosts = useCallback(async () => {
     try {
       setPostsLoading(true);
       setPostsError("");
-
-      const data = await getMyPosts(userId);
-
-      const mapped: MyPost[] = (Array.isArray(data) ? data : []).map(
-        (it: any) => ({
-          id: it.id,
-          title: it.title,
-          content: it.content ?? it.description ?? "",
-          description: it.description ?? it.content ?? "",
-          tags:
-            it.tags ??
-            (it.categories ? it.categories.map((c: any) => c?.name) : []),
-          categories: it.categories ?? [],
-          createdAt: it.createdAt,
-          updatedAt: it.updatedAt ?? it.createdAt,
-        }),
-      );
-
-      mapped.sort((a, b) => {
-        const ta = new Date(a.createdAt || 0).getTime();
-        const tb = new Date(b.createdAt || 0).getTime();
-        return tb - ta;
-      });
-
-      setMyPosts(mapped);
+      const data = await getMyPosts(); // GET /posts/my-posts
+      setMyPosts(Array.isArray(data) ? data : []);
     } catch (err: any) {
-      console.warn(
-        "GET MY POSTS fallback to empty:",
+      console.error(
+        "GET MY POSTS ERROR:",
         err?.response?.status,
         err?.response?.data,
+        err,
       );
-
-      // anggap user belum punya post
+      // kalau backend error, jangan bikin crash
       setMyPosts([]);
-      setPostsError("");
+      setPostsError(
+        err?.response?.data?.message || "Failed to load your posts",
+      );
     } finally {
       setPostsLoading(false);
     }
-  };
+  }, []);
 
-  // fetch once when user ready
   useEffect(() => {
-    if (!user) return;
-    loadPosts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+    if (!loading && user) loadPosts();
+  }, [loading, user, loadPosts]);
+
+  const hasPosts = myPosts.length > 0;
+
+  // ===== Edit Profile modal =====
+  const [openEdit, setOpenEdit] = useState(false);
+  const [draftName, setDraftName] = useState("");
+  const [draftHeadline, setDraftHeadline] = useState("");
+  const [draftAvatarPreview, setDraftAvatarPreview] = useState<string>("");
+  const [draftAvatarFile, setDraftAvatarFile] = useState<File | null>(null);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const fileRef = useRef<HTMLInputElement | null>(null);
 
   const openModal = () => {
     setDraftName(profile.name || fallbackName);
@@ -238,22 +235,24 @@ export default function ProfilePage() {
   const avatarSrc =
     draftAvatarPreview?.trim() || profile.avatarUrl?.trim() || "/icons.svg";
 
+  // ===== Change password (coming soon endpoint) =====
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
+
   const submitChangePassword = async () => {
-    if (!currentPassword.trim()) {
-      alert("Current password is required");
-      return;
-    }
-    if (!newPassword.trim()) {
-      alert("New password is required");
-      return;
-    }
-    if (newPassword !== confirmNewPassword) {
-      alert("Confirm password doesn't match");
-      return;
-    }
+    if (!currentPassword.trim()) return alert("Current password is required");
+    if (!newPassword.trim()) return alert("New password is required");
+    if (newPassword !== confirmNewPassword)
+      return alert("Confirm password doesn't match");
 
     try {
       setSavingPassword(true);
+      // TODO: sambungkan ke backend update password kalau sudah ada
       await new Promise((r) => setTimeout(r, 600));
       alert("Password updated (coming soon backend)");
       setCurrentPassword("");
@@ -261,6 +260,121 @@ export default function ProfilePage() {
       setConfirmNewPassword("");
     } finally {
       setSavingPassword(false);
+    }
+  };
+
+  // ===== Delete modal =====
+  const [openDelete, setOpenDelete] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<MyPost | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const openDeleteModal = (post: MyPost) => {
+    setDeleteTarget(post);
+    setOpenDelete(true);
+  };
+
+  const closeDeleteModal = () => {
+    if (deleting) return;
+    setOpenDelete(false);
+    setDeleteTarget(null);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget?.id) return;
+
+    try {
+      setDeleting(true);
+
+      // ✅ Swagger: DELETE /posts/{id}
+      await api.delete(`/posts/${deleteTarget.id}`);
+
+      // remove UI setelah sukses (nanti kalau backend sudah fix)
+      setMyPosts((prev) => prev.filter((p) => p.id !== deleteTarget.id));
+      closeDeleteModal();
+    } catch (err: any) {
+      // Backend kamu currently bug 500 → jangan ubah list
+      console.error(
+        "DELETE POST ERROR:",
+        err?.response?.status,
+        err?.response?.data,
+        err,
+      );
+      alert("Delete failed (server error). Please try again later.");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  // ===== Statistic modal =====
+  const [openStat, setOpenStat] = useState(false);
+  const [statTab, setStatTab] = useState<StatsTab>("like");
+  const [statTarget, setStatTarget] = useState<MyPost | null>(null);
+  const [statLikes, setStatLikes] = useState<LikeUser[]>([]);
+  const [statComments, setStatComments] = useState<CommentItem[]>([]);
+  const [statLoading, setStatLoading] = useState(false);
+  const [statError, setStatError] = useState("");
+
+  const closeStatModal = () => {
+    if (statLoading) return;
+    setOpenStat(false);
+    setStatTarget(null);
+  };
+
+  const openStatModal = async (post: MyPost) => {
+    setStatTarget(post);
+    setStatTab("like");
+    setOpenStat(true);
+
+    setStatError("");
+    setStatLikes([]);
+    setStatComments([]);
+
+    try {
+      setStatLoading(true);
+
+      // ✅ endpoints:
+      // GET /posts/{id}/likes
+      // GET /posts/{id}/comments
+      const [likesRes, commentsRes] = await Promise.all([
+        api.get(`/posts/${post.id}/likes`),
+        api.get(`/posts/${post.id}/comments`),
+      ]);
+
+      const likesRaw = pickArray(likesRes.data);
+      const commentsRaw = pickArray(commentsRes.data);
+
+      const mappedLikes: LikeUser[] = likesRaw.map((x: any) => {
+        const u = x?.user ?? x;
+        return {
+          id: u?.id ?? x?.id ?? String(Math.random()),
+          name: u?.name ?? u?.username ?? u?.email ?? "User",
+          avatarUrl: u?.avatarUrl ?? u?.avatar ?? "",
+        };
+      });
+
+      const mappedComments: CommentItem[] = commentsRaw.map((x: any) => {
+        const u = x?.user ?? x?.author ?? x;
+        return {
+          id: x?.id ?? u?.id ?? String(Math.random()),
+          name: u?.name ?? u?.username ?? u?.email ?? "User",
+          avatarUrl: u?.avatarUrl ?? u?.avatar ?? "",
+          createdAt: x?.createdAt ?? x?.created_at ?? x?.date ?? "",
+          text: x?.content ?? x?.text ?? x?.message ?? "",
+        };
+      });
+
+      setStatLikes(mappedLikes);
+      setStatComments(mappedComments);
+    } catch (err: any) {
+      console.error(
+        "STATISTIC ERROR:",
+        err?.response?.status,
+        err?.response?.data,
+        err,
+      );
+      setStatError(err?.response?.data?.message || "Failed to load statistic");
+    } finally {
+      setStatLoading(false);
     }
   };
 
@@ -273,14 +387,12 @@ export default function ProfilePage() {
   }
   if (!user) return null;
 
-  const hasPosts = !postsLoading && !postsError && myPosts.length > 0;
-
   return (
     <>
       <MobileHeader />
 
       <div className="min-h-screen bg-gray-50">
-        {/* ======= TOP PROFILE HEADER ======= */}
+        {/* ======= TOP PROFILE HEADER (BORDER WRAPPED) ======= */}
         <div className="bg-white border border-neutral-300 rounded-xl mx-4 mt-4 px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 min-w-0">
@@ -309,7 +421,7 @@ export default function ProfilePage() {
             <button
               type="button"
               onClick={openModal}
-              className="text-[#0093DD] underline underline-offset-4 text-sm font-medium shrink-0"
+              className="text-[#0093DD] underline cursor-pointer underline-offset-4 text-sm font-medium shrink-0"
             >
               Edit Profile
             </button>
@@ -345,72 +457,25 @@ export default function ProfilePage() {
               )}
             </button>
           </div>
-
-          {/* ✅ Tombol di atas hanya kalau SUDAH ADA POST */}
-          {tab === "posts" && hasPosts && (
-            <div className="mt-5 flex justify-center">
-              <button
-                type="button"
-                onClick={() => router.push("/write")}
-                className="bg-[#0093DD] text-white rounded-full w-60 justify-center px-6 py-3 text-sm font-semibold flex items-center gap-2 hover:opacity-90 transition"
-              >
-                <Image src="/write.svg" alt="Write" width={18} height={18} />
-                Write Post
-              </button>
-            </div>
-          )}
         </div>
 
         {/* ======= TAB CONTENT ======= */}
-        <div className="px-4 py-8">
-          {/* === YOUR POST TAB === */}
+        <div className="px-4 py-6">
+          {/* ===================== POSTS TAB ===================== */}
           {tab === "posts" && (
-            <div className="mt-6">
-              {/* Loading */}
-              {postsLoading && (
-                <p className="text-gray-400 text-center">
-                  Loading your posts...
-                </p>
-              )}
-
-              {/* Error */}
-              {!postsLoading && postsError && (
-                <div className="text-center">
-                  <p className="text-red-500">{postsError}</p>
-                  <button
-                    type="button"
-                    onClick={loadPosts}
-                    className="mt-4 text-sm underline text-[#0093DD]"
-                  >
-                    Retry
-                  </button>
-                </div>
-              )}
-
-              {/* ✅ EMPTY STATE = hanya noPost + teks + tombol di bawah */}
-              {!postsLoading && !postsError && myPosts.length === 0 && (
-                <div className="flex flex-col items-center text-center mt-60">
-                  <Image
-                    src="/noPost.svg"
-                    alt="No posts"
-                    width={180}
-                    height={180}
-                    className="mb-6"
-                  />
-
-                  <p className="text-sm font-semibold text-gray-900 mb-2">
-                    Your writing journey starts here
-                  </p>
-
-                  <p className="text-sm text-gray-500 max-w-xs mb-6">
-                    No posts yet, but every great writer starts with the first
-                    one.
-                  </p>
-
+            <>
+              {/* Write Post button moved up ONLY if already has posts */}
+              {hasPosts && (
+                <div className="mt-4">
                   <button
                     type="button"
                     onClick={() => router.push("/write")}
-                    className="bg-[#0093DD] text-white rounded-full w-60 justify-center px-6 py-3 text-sm font-semibold flex items-center gap-2 hover:opacity-90 transition"
+                    className="
+                      bg-[#0093DD] text-white rounded-full w-full
+                      px-6 py-3 text-sm font-semibold
+                      flex items-center justify-center gap-2
+                      hover:opacity-90 transition cursor-pointer
+                    "
                   >
                     <Image
                       src="/write.svg"
@@ -423,39 +488,89 @@ export default function ProfilePage() {
                 </div>
               )}
 
-              {/* ✅ LIST jika ada posts */}
-              {!postsLoading && !postsError && myPosts.length > 0 && (
-                <div className="bg-white rounded-xl border border-neutral-300 p-4">
-                  <div className="flex items-center justify-between mb-4">
-                    <p className="text-sm font-semibold text-gray-900">
-                      Latest 5 posts
-                    </p>
-                    <button
-                      type="button"
-                      onClick={loadPosts}
-                      className="text-xs text-[#0093DD] underline"
-                    >
-                      Refresh
-                    </button>
-                  </div>
+              {/* Loading / Error */}
+              {postsLoading && (
+                <p className="text-center text-gray-400 mt-8">
+                  Loading your posts...
+                </p>
+              )}
+
+              {!postsLoading && postsError && (
+                <div className="mt-8 text-center">
+                  <p className="text-red-500 text-sm mb-3">{postsError}</p>
+                  <button
+                    type="button"
+                    onClick={loadPosts}
+                    className="px-4 py-2 rounded-full border bg-white hover:bg-gray-50 text-sm font-medium"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
+
+              {/* Empty state (ONLY when no posts) */}
+              {!postsLoading && !postsError && !hasPosts && (
+                <div className="flex flex-col items-center text-center mt-14">
+                  <Image
+                    src="/noPost.svg"
+                    alt="No posts"
+                    width={180}
+                    height={180}
+                    className="mb-6"
+                  />
+
+                  <p className="text-sm font-semibold text-gray-900 mb-2">
+                    Your writing journey starts here
+                  </p>
+
+                  <p className="text-sm text-gray-500 mb-6">
+                    No posts yet, but every great writer starts with the first
+                    one.
+                  </p>
+
+                  {/* button stays below empty state and uses w-60 */}
+                  <button
+                    type="button"
+                    onClick={() => router.push("/write")}
+                    className="
+                      bg-[#0093DD] text-white rounded-full w-60
+                      px-6 py-3 text-sm font-semibold
+                      flex items-center justify-center gap-2
+                      hover:opacity-90 transition
+                    "
+                  >
+                    <Image
+                      src="/write.svg"
+                      alt="Write"
+                      width={18}
+                      height={18}
+                    />
+                    Write Post
+                  </button>
+                </div>
+              )}
+
+              {/* Posts list (latest 5) */}
+              {!postsLoading && !postsError && hasPosts && (
+                <div className="mt-6">
+                  <p className="text-sm font-semibold text-gray-900 mb-4">
+                    Latest 5 posts
+                  </p>
 
                   <div className="flex flex-col gap-4">
-                    {myPosts.slice(0, 5).map((p) => {
-                      const tags = (p.tags ?? []).filter(Boolean).slice(0, 3);
-                      const content = p.content ?? p.description ?? "-";
-
-                      return (
-                        <div
-                          key={p.id}
-                          className="border-b border-neutral-200 pb-4 last:border-b-0 last:pb-0"
-                        >
-                          {/* Tags */}
-                          {tags.length > 0 && (
+                    {myPosts.slice(0, 5).map((p) => (
+                      <div
+                        key={p.id}
+                        className="bg-white border border-neutral-300 rounded-xl p-4"
+                      >
+                        {/* tags */}
+                        {Array.isArray((p as any)?.tags) &&
+                          (p as any).tags.length > 0 && (
                             <div className="flex flex-wrap gap-2 mb-3">
-                              {tags.map((t) => (
+                              {(p as any).tags.slice(0, 3).map((t: string) => (
                                 <span
                                   key={t}
-                                  className="px-3 py-1 text-xs border border-neutral-300 rounded-xl bg-white text-gray-700"
+                                  className="px-3 py-1 text-xs border border-neutral-300 rounded-xl bg-white"
                                 >
                                   {t}
                                 </span>
@@ -463,57 +578,61 @@ export default function ProfilePage() {
                             </div>
                           )}
 
-                          {/* Content */}
-                          <Link href={`/posts/${p.id}`} className="block">
-                            <p className="text-sm text-gray-800 whitespace-pre-line">
-                              {content}
-                            </p>
-                          </Link>
-
-                          {/* Dates */}
-                          <p className="text-xs text-gray-500 mt-3">
-                            Created at {formatDateTime(p.createdAt)} | Last
-                            Updated {formatDateTime(p.updatedAt)}
+                        {/* title + content */}
+                        {p.title && (
+                          <p className="text-sm font-semibold text-gray-900 mb-2">
+                            {p.title}
                           </p>
+                        )}
 
-                          {/* Actions */}
-                          <div className="flex items-center gap-5 mt-3 text-sm">
-                            <button
-                              type="button"
-                              onClick={() => alert("Statistic (coming soon)")}
-                              className="text-[#0093DD] font-medium"
-                            >
-                              Statistic
-                            </button>
+                        <p className="text-sm text-gray-700 whitespace-pre-line line-clamp-4">
+                          {(p as any)?.content ||
+                            (p as any)?.description ||
+                            "-"}
+                        </p>
 
-                            <button
-                              type="button"
-                              onClick={() => alert("Edit (coming soon)")}
-                              className="text-[#0093DD] font-medium"
-                            >
-                              Edit
-                            </button>
+                        <p className="text-xs text-gray-500 mt-3">
+                          Created at {formatDateTime((p as any)?.createdAt)} |{" "}
+                          Last Updated {formatDateTime((p as any)?.updatedAt)}
+                        </p>
 
-                            <button
-                              type="button"
-                              onClick={() => alert("Delete (coming soon)")}
-                              className="text-[#EE1D52] underline font-medium"
-                            >
-                              Delete
-                            </button>
-                          </div>
+                        <div className="flex items-center gap-6 mt-3 text-sm">
+                          <button
+                            type="button"
+                            onClick={() => openStatModal(p)}
+                            className="text-[#0093DD] font-medium"
+                          >
+                            Statistic
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => alert("Edit (coming soon)")}
+                            className="text-[#0093DD] font-medium"
+                          >
+                            Edit
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => openDeleteModal(p)}
+                            className="text-[#EE1D52] underline font-medium"
+                          >
+                            Delete
+                          </button>
                         </div>
-                      );
-                    })}
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
-            </div>
+            </>
           )}
 
-          {/* === CHANGE PASSWORD TAB === */}
+          {/* ===================== CHANGE PASSWORD TAB ===================== */}
           {tab === "password" && (
-            <div className="bg-white rounded-xl p-4">
+            <div className="bg-white rounded-xl p-4 border border-neutral-300">
+              {/* Current Password */}
               <div className="mb-4">
                 <label className="text-sm font-semibold text-gray-900">
                   Current Password
@@ -538,6 +657,7 @@ export default function ProfilePage() {
                 </div>
               </div>
 
+              {/* New Password */}
               <div className="mb-4">
                 <label className="text-sm font-semibold text-gray-900">
                   New Password
@@ -562,6 +682,7 @@ export default function ProfilePage() {
                 </div>
               </div>
 
+              {/* Confirm New Password */}
               <div className="mb-6">
                 <label className="text-sm font-semibold text-gray-900">
                   Confirm New Password
@@ -598,16 +719,15 @@ export default function ProfilePage() {
           )}
         </div>
 
-        {/* ======= EDIT PROFILE MODAL ======= */}
+        {/* ===================== EDIT PROFILE MODAL ===================== */}
         {openEdit && (
-          <div className="fixed inset-0 z-[80]">
+          <div className="fixed inset-0 z-80">
             <div
               className="absolute inset-0 bg-black/30"
               onClick={closeModal}
               aria-hidden="true"
             />
-
-            <div className="absolute inset-0 flex items-start justify-center p-4">
+            <div className="absolute inset-0 flex items-start justify-center p-4 pt-20">
               <div className="w-full max-w-md rounded-2xl bg-white shadow-xl overflow-hidden">
                 <div className="flex items-center justify-between px-4 py-4 border-b border-neutral-200">
                   <p className="text-md font-bold text-gray-900">
@@ -625,28 +745,31 @@ export default function ProfilePage() {
                 </div>
 
                 <div className="px-4 py-5">
+                  {/* Avatar + edit icon (svg only, 24x24, no background) */}
                   <div className="flex justify-center mb-6">
-                    <div className="relative w-24 h-24 rounded-full overflow-hidden border bg-white">
-                      <Image
-                        src={avatarSrc}
-                        alt="Avatar preview"
-                        width={96}
-                        height={96}
-                        className="object-cover w-full h-full"
-                      />
+                    <div className="relative w-24 h-24">
+                      <div className="w-24 h-24 rounded-full overflow-hidden border border-neutral-300 bg-white">
+                        <Image
+                          src={avatarSrc}
+                          alt="Avatar preview"
+                          width={96}
+                          height={96}
+                          className="object-cover w-full h-full"
+                        />
+                      </div>
 
                       <button
                         type="button"
                         onClick={() => fileRef.current?.click()}
-                        className="absolute -bottom-1 -right-1 w-9 h-9 rounded-full bg-white border border-neutral-300 flex items-center justify-center hover:bg-gray-50 disabled:opacity-60"
                         aria-label="Change avatar"
                         disabled={savingProfile}
+                        className="absolute bottom-1 right-1 w-6 h-6 flex items-center justify-center disabled:opacity-60"
                       >
                         <Image
                           src="/editAvatar.svg"
                           alt="Edit avatar"
-                          width={18}
-                          height={18}
+                          width={24}
+                          height={24}
                         />
                       </button>
 
@@ -699,6 +822,238 @@ export default function ProfilePage() {
             </div>
           </div>
         )}
+
+        {/* ===================== DELETE MODAL ===================== */}
+        {openDelete && (
+          <div className="fixed inset-0 z-[90]">
+            <div
+              className="absolute inset-0 bg-black/30"
+              onClick={closeDeleteModal}
+              aria-hidden="true"
+            />
+            <div className="absolute inset-0 flex items-start justify-center pt-28 px-4">
+              <div
+                className="bg-white rounded-2xl shadow-xl border border-neutral-200"
+                style={{ width: 345, height: 186 }}
+              >
+                <div className="flex items-center justify-between px-4 pt-4">
+                  <p className="text-md font-bold text-gray-900">Delete</p>
+                  <button
+                    type="button"
+                    onClick={closeDeleteModal}
+                    disabled={deleting}
+                    className="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center disabled:opacity-50"
+                    aria-label="Close"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <div className="px-4 pt-4">
+                  <p className="text-center text-gray-900 font-medium">
+                    Are you sure to delete?
+                  </p>
+
+                  <div className="mt-6 flex items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={closeDeleteModal}
+                      disabled={deleting}
+                      className="h-10 rounded-full bg-white text-sm font-semibold hover:bg-gray-50 disabled:opacity-60"
+                      style={{ width: 156.5 }}
+                    >
+                      Cancel
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={confirmDelete}
+                      disabled={deleting}
+                      className="h-10 rounded-full bg-[#EE1D52] text-white text-sm font-semibold hover:opacity-90 disabled:opacity-60"
+                      style={{ width: 156.5 }}
+                    >
+                      {deleting ? "Deleting..." : "Delete"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ===================== STATISTIC MODAL ===================== */}
+        {openStat && (
+          <div className="fixed inset-0 z-[95]">
+            <div
+              className="absolute inset-0 bg-black/30"
+              onClick={closeStatModal}
+              aria-hidden="true"
+            />
+
+            <div className="absolute inset-0 flex items-start justify-center pt-28 px-4">
+              <div
+                className="bg-white rounded-2xl shadow-xl border border-neutral-200 overflow-hidden"
+                style={{ width: 345 }}
+              >
+                <div className="flex items-center justify-between px-4 pt-4">
+                  <p className="text-md font-bold text-gray-900">Statistic</p>
+                  <button
+                    type="button"
+                    onClick={closeStatModal}
+                    disabled={statLoading}
+                    className="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center disabled:opacity-50"
+                    aria-label="Close"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                {/* Tabs */}
+                <div className="px-4 mt-3">
+                  <div className="flex items-center gap-10 border-b border-neutral-300 justify-center">
+                    <button
+                      type="button"
+                      onClick={() => setStatTab("like")}
+                      className={`py-3 text-md font-medium relative flex items-center gap-2 ${
+                        statTab === "like" ? "text-[#0093DD]" : "text-black"
+                      }`}
+                    >
+                      <Image
+                        src="/like.svg"
+                        alt="Like"
+                        width={16}
+                        height={16}
+                      />
+                      Like
+                      {statTab === "like" && (
+                        <span className="absolute left-0 -bottom-[1px] h-[2px] w-full bg-[#0093DD]" />
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setStatTab("comment")}
+                      className={`py-3 text-md font-medium relative flex items-center gap-2 ${
+                        statTab === "comment" ? "text-[#0093DD]" : "text-black"
+                      }`}
+                    >
+                      <Image
+                        src="/comment.svg"
+                        alt="Comment"
+                        width={16}
+                        height={16}
+                      />
+                      Comment
+                      {statTab === "comment" && (
+                        <span className="absolute left-0 -bottom-[1px] h-[2px] w-full bg-[#0093DD]" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Content */}
+                <div className="px-4 py-4 max-h-[320px] overflow-auto">
+                  {statError && (
+                    <p className="text-sm text-red-500 text-center">
+                      {statError}
+                    </p>
+                  )}
+
+                  {statLoading && (
+                    <p className="text-sm text-gray-400 text-center">
+                      Loading...
+                    </p>
+                  )}
+
+                  {!statLoading && !statError && statTab === "like" && (
+                    <div className="flex flex-col gap-3">
+                      {statLikes.length === 0 ? (
+                        <p className="text-sm text-gray-500 text-center py-8">
+                          No likes yet
+                        </p>
+                      ) : (
+                        statLikes.map((u) => (
+                          <div
+                            key={String(u.id)}
+                            className="flex items-center gap-3 border border-neutral-200 rounded-xl p-3"
+                          >
+                            <div className="w-9 h-9 rounded-full overflow-hidden border bg-white shrink-0">
+                              <Image
+                                src={
+                                  u.avatarUrl?.trim()
+                                    ? u.avatarUrl
+                                    : "/icons.svg"
+                                }
+                                alt={u.name}
+                                width={36}
+                                height={36}
+                                className="object-cover w-full h-full"
+                              />
+                            </div>
+                            <p className="text-sm font-medium text-gray-900 truncate">
+                              {u.name}
+                            </p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+
+                  {!statLoading && !statError && statTab === "comment" && (
+                    <div className="flex flex-col gap-3">
+                      {statComments.length === 0 ? (
+                        <p className="text-sm text-gray-500 text-center py-8">
+                          No comments yet
+                        </p>
+                      ) : (
+                        statComments.map((c) => (
+                          <div
+                            key={String(c.id)}
+                            className="border border-neutral-200 rounded-xl p-3"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 rounded-full overflow-hidden border bg-white shrink-0">
+                                <Image
+                                  src={
+                                    c.avatarUrl?.trim()
+                                      ? c.avatarUrl
+                                      : "/icons.svg"
+                                  }
+                                  alt={c.name}
+                                  width={36}
+                                  height={36}
+                                  className="object-cover w-full h-full"
+                                />
+                              </div>
+
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium text-gray-900 truncate">
+                                  {c.name}
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                  {formatDateTimeShort(c.createdAt)}
+                                </p>
+                              </div>
+                            </div>
+
+                            {c.text?.trim() && (
+                              <p className="text-sm text-gray-700 mt-2">
+                                {c.text}
+                              </p>
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* spacing bottom */}
+        <div className="h-10" />
       </div>
     </>
   );

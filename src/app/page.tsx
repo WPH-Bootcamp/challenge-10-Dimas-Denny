@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import MobileHeader from "@/components/header/MobileHeader";
 import { getRecommendedPosts } from "@/lib/posts";
+import PostCard from "@/components/PostCard";
 
 /* ================= TYPES ================= */
 type Category = { id: number; name: string };
@@ -16,6 +17,8 @@ type Article = {
   title: string;
   description: string;
   categories: Category[];
+  image?: string | null;
+  tags?: string[];
   author: Author;
   createdAt: string;
   likes: number;
@@ -37,8 +40,8 @@ function formatDate(dateString?: string) {
 /* ================= LOCALSTORAGE KEY ================= */
 const LIKED_KEY = "liked_post_ids_v2";
 
-/* ================= PAGINATION ================= */
-const PAGE_SIZE = 5;
+/* ================= SLIDER SETTINGS ================= */
+const ITEMS_PER_PAGE = 5;
 
 function buildPageItems(current: number, total: number) {
   if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
@@ -63,7 +66,7 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // pagination
+  // slider page (works for mobile+desktop)
   const [page, setPage] = useState(1);
 
   // liked ids (toggle like)
@@ -99,13 +102,13 @@ export default function HomePage() {
 
         const data = await getRecommendedPosts();
 
-        // normalize: bikin bentuk Article stabil walaupun API berubah-ubah
         const mapped: Article[] = (Array.isArray(data) ? data : []).map(
           (it: any) => ({
             id: it.id,
             title: it.title,
             description: it.description ?? it.content ?? "",
             categories: it.categories ?? [],
+            tags: Array.isArray(it.tags) ? it.tags : [],
             author: {
               id: it.author?.id ?? it.authorId ?? it.userId,
               name: it.author?.name,
@@ -141,34 +144,44 @@ export default function HomePage() {
     };
   }, []);
 
-  const totalPages = useMemo(
-    () => Math.max(1, Math.ceil(articles.length / PAGE_SIZE)),
-    [articles.length],
-  );
+  // ✅ IMPORTANT:
+  // Recommend page 1 = 5 post TERBARU, page 2 = 5 berikutnya, dst.
+  const sortedArticles = useMemo(() => {
+    return [...articles].sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+  }, [articles]);
+
+  const totalPages = useMemo(() => {
+    return Math.max(1, Math.ceil(sortedArticles.length / ITEMS_PER_PAGE));
+  }, [sortedArticles.length]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
-
-  const visibleArticles = useMemo(() => {
-    const start = (page - 1) * PAGE_SIZE;
-    const end = start + PAGE_SIZE;
-    return articles.slice(start, end);
-  }, [articles, page]);
 
   const pageItems = useMemo(
     () => buildPageItems(page, totalPages),
     [page, totalPages],
   );
 
-  // Most liked 3 posts
+  const pages = useMemo(() => {
+    return Array.from({ length: totalPages }).map((_, pageIndex) => {
+      const start = pageIndex * ITEMS_PER_PAGE;
+      const end = start + ITEMS_PER_PAGE;
+      return sortedArticles.slice(start, end);
+    });
+  }, [sortedArticles, totalPages]);
+
+  // Most liked 3 (dari semua recommended)
   const mostLiked = useMemo(() => {
-    return [...articles]
+    return [...sortedArticles]
       .sort((a, b) => (b.likes ?? 0) - (a.likes ?? 0))
       .slice(0, 3);
-  }, [articles]);
+  }, [sortedArticles]);
 
-  // Toggle like
+  // Toggle like (optimistic local)
   const toggleLike = async (postId: number) => {
     const isLiked = likedIds.has(postId);
 
@@ -200,226 +213,447 @@ export default function HomePage() {
         }
       : undefined;
 
+  // Desktop card (desktop-only UI)
+  const DesktopCard = ({ article }: { article: Article }) => {
+    const isLiked = likedIds.has(article.id);
+
+    return (
+      <Link
+        href={`/posts/${article.id}`}
+        className="block"
+        aria-label={`Open post: ${article.title}`}
+      >
+        <section className="border-b border-neutral-300 bg-white px-4 py-6">
+          <h2 className="text-xl font-bold mb-3">{article.title}</h2>
+
+          {/* tags under title */}
+          {Array.isArray(article.tags) && article.tags.length > 0 && (
+            <div className="flex gap-2 mb-3 flex-wrap">
+              {article.tags.slice(0, 3).map((t) => (
+                <span
+                  key={t}
+                  className="px-3 py-1 text-xs font-medium border border-neutral-300 rounded-xl text-gray-700 bg-white"
+                >
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* categories fallback */}
+          {!article.tags?.length &&
+            Array.isArray(article.categories) &&
+            article.categories.length > 0 && (
+              <div className="flex gap-2 mb-3 flex-wrap">
+                {article.categories.slice(0, 3).map((cat) => (
+                  <span
+                    key={cat.id}
+                    className="px-3 py-1 text-xs font-medium border border-neutral-300 rounded-xl text-gray-700 bg-white"
+                  >
+                    {cat.name}
+                  </span>
+                ))}
+              </div>
+            )}
+
+          <p className="text-gray-600 text-sm leading-relaxed mb-4 line-clamp-3">
+            {article.description}
+          </p>
+
+          {/* author row */}
+          <div className="flex items-center justify-between text-xs text-gray-500">
+            <div className="flex items-center gap-2 min-w-0">
+              <button
+                type="button"
+                onClick={(e) => openAuthorPosts(e, article.author?.id)}
+                className="w-7 h-7 rounded-full overflow-hidden border bg-white shrink-0"
+                aria-label="Open author posts"
+              >
+                <Image
+                  src="/icons.svg"
+                  alt="Author"
+                  width={28}
+                  height={28}
+                  className="object-cover"
+                />
+              </button>
+
+              <span className="font-medium text-gray-800 truncate">
+                {article.author?.name ||
+                  article.author?.username ||
+                  "Anonymous"}
+              </span>
+
+              <span className="w-1 h-1 rounded-full bg-gray-300" />
+
+              <span className="whitespace-nowrap">
+                {formatDate(article.createdAt)}
+              </span>
+            </div>
+          </div>
+
+          {/* Like & Comment row */}
+          <div className="flex items-center gap-6 mt-4 text-sm text-gray-700">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                toggleLike(article.id);
+              }}
+              className={`flex items-center gap-2 transition ${
+                isLiked ? "text-blue-600" : "text-gray-700 hover:text-blue-600"
+              }`}
+              aria-label={isLiked ? "Unlike this post" : "Like this post"}
+            >
+              <Image
+                src="/like.svg"
+                alt="Like"
+                width={16}
+                height={16}
+                className={isLiked ? "opacity-100" : "opacity-80"}
+                style={likeIconFilter(isLiked)}
+              />
+              <span>{article.likes}</span>
+            </button>
+
+            <span className="flex items-center gap-2">
+              <Image src="/comment.svg" alt="Comments" width={16} height={16} />
+              {article.comments}
+            </span>
+          </div>
+        </section>
+      </Link>
+    );
+  };
+
   return (
-    <main className="bg-gray-50 min-h-screen">
+    <main className="bg-white min-h-screen">
       <MobileHeader />
 
       <div className="pt-6">
-        <h1 className="px-6 text-2xl font-bold md:hidden">Recommend For You</h1>
-        <h1 className="hidden md:block px-10 text-3xl font-bold mb-4">
+        {/* Title */}
+        <h1 className="px-6 md:px-0 text-2xl md:text-3xl font-bold mb-4">
           Recommend For You
         </h1>
 
-        {/* Loading */}
         {loading && (
-          <p className="px-6 py-10 text-center text-gray-400 md:px-10">
+          <p className="px-6 md:px-0 py-10 text-center text-gray-400">
             Loading articles...
           </p>
         )}
 
-        {/* Error */}
         {!loading && error && (
-          <div className="px-6 py-10 text-center md:px-10">
+          <div className="px-6 md:px-0 py-10 text-center">
             <p className="text-red-500 mb-4">{error}</p>
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="px-4 py-2 rounded-full bg-white hover:bg-gray-50"
+              className="px-4 py-2 rounded-full bg-white hover:bg-gray-50 transition"
             >
               Retry
             </button>
           </div>
         )}
 
-        {/* List + Pagination + Most Liked */}
         {!loading && !error && (
-          <div className="flex flex-col md:px-10">
-            {articles.length === 0 ? (
-              <p className="px-6 py-10 text-center text-gray-400 md:px-0">
-                No articles found.
-              </p>
-            ) : (
-              <>
-                {/* ================= RECOMMEND LIST (5 per page) ================= */}
-                {visibleArticles.map((article) => {
-                  const isLiked = likedIds.has(article.id);
-
-                  return (
-                    <Link
-                      key={article.id}
-                      href={`/posts/${article.id}`}
-                      className="block"
-                      aria-label={`Open post: ${article.title}`}
+          <>
+            {/* ===== MOBILE (unchanged) ===== */}
+            <div className="md:hidden">
+              {sortedArticles.length === 0 ? (
+                <p className="px-6 py-10 text-center text-gray-400">
+                  No articles found.
+                </p>
+              ) : (
+                <>
+                  {/* slider */}
+                  <div className="overflow-hidden">
+                    <div
+                      className="flex transition-transform duration-500 ease-in-out"
+                      style={{
+                        transform: `translateX(-${(page - 1) * 100}%)`,
+                      }}
                     >
-                      <section className="border-b border-neutral-300 bg-white px-4 py-6">
-                        <h2 className="text-[18px] font-bold mb-3 text-gray-900">
-                          {article.title}
-                        </h2>
+                      {pages.map((pageList, idx) => (
+                        <div key={idx} className="w-full shrink-0">
+                          {pageList.map((article) => (
+                            <Link
+                              key={article.id}
+                              href={`/posts/${article.id}`}
+                              className="block"
+                              aria-label={`Open post: ${article.title}`}
+                            >
+                              <PostCard
+                                post={article}
+                                isLiked={likedIds.has(article.id)}
+                                onToggleLike={toggleLike}
+                                onAuthorClick={(authorId) => {
+                                  if (!authorId) return;
+                                  router.push(`/users/${authorId}`);
+                                }}
+                              />
+                            </Link>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
 
-                        {article.categories?.length > 0 && (
-                          <div className="flex gap-2 mb-3 flex-wrap">
-                            {article.categories.map((cat) => (
-                              <span
-                                key={cat.id}
-                                className="px-3 py-1 text-[10px] font-medium border rounded-md text-gray-700 bg-white"
+                  {/* pagination toggle */}
+                  {totalPages > 1 && (
+                    <div className="bg-white border-b border-neutral-300">
+                      <div className="px-6 py-6">
+                        <div className="flex items-center justify-center gap-6 text-sm">
+                          <button
+                            type="button"
+                            onClick={() => setPage((p) => Math.max(1, p - 1))}
+                            disabled={page === 1}
+                            className={`flex items-center gap-2 transition ${
+                              page === 1
+                                ? "opacity-40 cursor-not-allowed"
+                                : "hover:text-blue-600"
+                            }`}
+                          >
+                            <span aria-hidden="true">←</span>
+                            Previous
+                          </button>
+
+                          <div className="flex items-center gap-6">
+                            {pageItems.map((it, i) =>
+                              it === "…" ? (
+                                <span
+                                  key={`dots-m-${i}`}
+                                  className="text-gray-500 select-none"
+                                >
+                                  ...
+                                </span>
+                              ) : (
+                                <button
+                                  key={it}
+                                  type="button"
+                                  onClick={() => setPage(it)}
+                                  className={`w-10 h-10 rounded-full flex items-center justify-center transition ${
+                                    it === page
+                                      ? "bg-blue-500 text-white"
+                                      : "hover:bg-gray-100"
+                                  }`}
+                                >
+                                  {it}
+                                </button>
+                              ),
+                            )}
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setPage((p) => Math.min(totalPages, p + 1))
+                            }
+                            disabled={page === totalPages}
+                            className={`flex items-center gap-2 transition ${
+                              page === totalPages
+                                ? "opacity-40 cursor-not-allowed"
+                                : "hover:text-blue-600"
+                            }`}
+                          >
+                            Next
+                            <span aria-hidden="true">→</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="h-6 bg-gray-100" />
+
+                  {/* most liked (mobile stays below) */}
+                  <section className="bg-white px-4 pt-6 pb-0">
+                    <h2 className="text-xl font-bold mb-4">Most Liked</h2>
+
+                    {mostLiked.length === 0 ? (
+                      <p className="text-gray-400 pb-0">No posts yet.</p>
+                    ) : (
+                      <div className="flex flex-col">
+                        {mostLiked.map((post, idx) => {
+                          const isLiked = likedIds.has(post.id);
+
+                          return (
+                            <div key={post.id}>
+                              <Link
+                                href={`/posts/${post.id}`}
+                                className="block py-4"
+                                aria-label={`Open most liked post: ${post.title}`}
                               >
-                                {cat.name}
-                              </span>
+                                <h3 className="font-semibold text-lg line-clamp-2">
+                                  {post.title}
+                                </h3>
+
+                                <p className="text-sm text-gray-600 mt-1 line-clamp-2">
+                                  {post.description}
+                                </p>
+
+                                {/* Like + Comment row */}
+                                <div className="flex items-center gap-6 mt-3 text-sm text-gray-700">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      toggleLike(post.id);
+                                    }}
+                                    className={`flex items-center gap-2 transition ${
+                                      isLiked
+                                        ? "text-blue-600"
+                                        : "hover:text-blue-600"
+                                    }`}
+                                    aria-label={
+                                      isLiked
+                                        ? "Unlike this post"
+                                        : "Like this post"
+                                    }
+                                  >
+                                    <Image
+                                      src="/like.svg"
+                                      alt="Like"
+                                      width={16}
+                                      height={16}
+                                      className={
+                                        isLiked ? "opacity-100" : "opacity-80"
+                                      }
+                                      style={likeIconFilter(isLiked)}
+                                    />
+                                    <span>{post.likes}</span>
+                                  </button>
+
+                                  <span className="flex items-center gap-2">
+                                    <Image
+                                      src="/comment.svg"
+                                      alt="Comments"
+                                      width={16}
+                                      height={16}
+                                    />
+                                    <span>{post.comments}</span>
+                                  </span>
+                                </div>
+                              </Link>
+
+                              {idx !== mostLiked.length - 1 && (
+                                <div className="border-b border-neutral-300" />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </section>
+                </>
+              )}
+            </div>
+
+            {/* ===== DESKTOP (3/4 recommend + 1/4 most liked) ===== */}
+            <div className="hidden md:grid grid-cols-4 gap-6">
+              {/* LEFT: Recommend (3/4) */}
+              <div className="col-span-3">
+                {sortedArticles.length === 0 ? (
+                  <p className="py-10 text-center text-gray-400">
+                    No articles found.
+                  </p>
+                ) : (
+                  <>
+                    {/* slider */}
+                    <div className="overflow-hidden">
+                      <div
+                        className="flex transition-transform duration-500 ease-in-out"
+                        style={{
+                          transform: `translateX(-${(page - 1) * 100}%)`,
+                          width: `${totalPages * 100}%`,
+                        }}
+                      >
+                        {pages.map((pageList, idx) => (
+                          <div key={idx} className="w-full shrink-0">
+                            {pageList.map((article) => (
+                              <DesktopCard key={article.id} article={article} />
                             ))}
                           </div>
-                        )}
-
-                        <p className="text-gray-600 text-sm leading-relaxed mb-4 line-clamp-3">
-                          {article.description}
-                        </p>
-
-                        {/* author row */}
-                        <div className="flex items-center justify-between text-xs text-gray-500">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <button
-                              type="button"
-                              onClick={(e) =>
-                                openAuthorPosts(e, article.author?.id)
-                              }
-                              className="w-7 h-7 rounded-full overflow-hidden border bg-white shrink-0"
-                              aria-label="Open author posts"
-                            >
-                              <Image
-                                src="/icons.svg"
-                                alt="Author"
-                                width={28}
-                                height={28}
-                                className="object-cover"
-                              />
-                            </button>
-
-                            <span className="font-medium text-gray-800 truncate">
-                              {article.author?.name ||
-                                article.author?.username ||
-                                "Anonymous"}
-                            </span>
-
-                            <span className="w-1 h-1 rounded-full bg-gray-300" />
-
-                            <span className="whitespace-nowrap">
-                              {formatDate(article.createdAt)}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Like & Comment row */}
-                        <div className="flex items-center gap-6 mt-4 text-sm text-gray-700">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              toggleLike(article.id);
-                            }}
-                            className={`flex items-center gap-2 transition ${
-                              isLiked
-                                ? "text-blue-600"
-                                : "text-gray-700 hover:text-blue-600"
-                            }`}
-                            aria-label={
-                              isLiked ? "Unlike this post" : "Like this post"
-                            }
-                          >
-                            <Image
-                              src="/like.svg"
-                              alt="Like"
-                              width={16}
-                              height={16}
-                              className={isLiked ? "opacity-100" : "opacity-80"}
-                              style={likeIconFilter(isLiked)}
-                            />
-                            <span>{article.likes}</span>
-                          </button>
-
-                          <span className="flex items-center gap-2">
-                            <Image
-                              src="/comment.svg"
-                              alt="Comments"
-                              width={16}
-                              height={16}
-                            />
-                            {article.comments}
-                          </span>
-                        </div>
-                      </section>
-                    </Link>
-                  );
-                })}
-
-                {/* ================= PAGINATION ================= */}
-                <div className="bg-white px-6 py-6 border-b border-neutral-300 md:px-0">
-                  <div className="flex items-center justify-center gap-4 text-sm">
-                    <button
-                      type="button"
-                      onClick={() => setPage((p) => Math.max(1, p - 1))}
-                      disabled={page === 1}
-                      className={`px-3 py-2 rounded-lg transition ${
-                        page === 1
-                          ? "opacity-40 cursor-not-allowed"
-                          : "hover:bg-gray-100"
-                      }`}
-                    >
-                      &lt; Previous
-                    </button>
-
-                    <div className="flex items-center gap-4">
-                      {pageItems.map((it, idx) =>
-                        it === "…" ? (
-                          <span
-                            key={`dots-${idx}`}
-                            className="px-1 text-gray-500 select-none"
-                          >
-                            ...
-                          </span>
-                        ) : (
-                          <button
-                            key={it}
-                            type="button"
-                            onClick={() => setPage(it)}
-                            className={`w-9 h-9 rounded-full flex items-center justify-center transition ${
-                              it === page
-                                ? "bg-blue-300 text-gray-900"
-                                : "hover:bg-gray-100"
-                            }`}
-                            aria-current={it === page ? "page" : undefined}
-                          >
-                            {it}
-                          </button>
-                        ),
-                      )}
+                        ))}
+                      </div>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPage((p) => Math.min(totalPages, p + 1))
-                      }
-                      disabled={page === totalPages}
-                      className={`px-3 py-2 rounded-lg transition ${
-                        page === totalPages
-                          ? "opacity-40 cursor-not-allowed"
-                          : "hover:bg-gray-100"
-                      }`}
-                    >
-                      Next &gt;
-                    </button>
-                  </div>
-                </div>
+                    {/* pagination toggle (seperti gambar kamu) */}
+                    {totalPages > 1 && (
+                      <div className="bg-white border-b border-neutral-300">
+                        <div className="py-6">
+                          <div className="flex items-center justify-center gap-6 text-sm">
+                            <button
+                              type="button"
+                              onClick={() => setPage((p) => Math.max(1, p - 1))}
+                              disabled={page === 1}
+                              className={`flex items-center gap-2 transition ${
+                                page === 1
+                                  ? "opacity-40 cursor-not-allowed"
+                                  : "hover:text-blue-600"
+                              }`}
+                            >
+                              <span aria-hidden="true">←</span>
+                              Previous
+                            </button>
 
-                {/* ================= GAP ABU-ABU TEBAL ================= */}
-                <div className="h-6 bg-gray-100" />
+                            <div className="flex items-center gap-6">
+                              {pageItems.map((it, i) =>
+                                it === "…" ? (
+                                  <span
+                                    key={`dots-d-${i}`}
+                                    className="text-gray-500 select-none"
+                                  >
+                                    ...
+                                  </span>
+                                ) : (
+                                  <button
+                                    key={it}
+                                    type="button"
+                                    onClick={() => setPage(it)}
+                                    className={`w-10 h-10 rounded-full flex items-center justify-center transition ${
+                                      it === page
+                                        ? "bg-blue-500 text-white"
+                                        : "hover:bg-gray-100"
+                                    }`}
+                                  >
+                                    {it}
+                                  </button>
+                                ),
+                              )}
+                            </div>
 
-                {/* ================= MOST LIKED (3) ================= */}
-                <section className="bg-white px-4 pt-6 pb-0 md:px-10">
-                  <h2 className="text-xl font-bold mb-4">Most Liked</h2>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setPage((p) => Math.min(totalPages, p + 1))
+                              }
+                              disabled={page === totalPages}
+                              className={`flex items-center gap-2 transition ${
+                                page === totalPages
+                                  ? "opacity-40 cursor-not-allowed"
+                                  : "hover:text-blue-600"
+                              }`}
+                            >
+                              Next
+                              <span aria-hidden="true">→</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* RIGHT: Most Liked (1/4) */}
+              <aside className="col-span-1">
+                <div className="bg-white  rounded-xl p-4 sticky top-24">
+                  <h2 className="text-lg font-bold mb-4">Most Liked</h2>
 
                   {mostLiked.length === 0 ? (
-                    <p className="text-gray-400 pb-0">No posts yet.</p>
+                    <p className="text-gray-400">No posts yet.</p>
                   ) : (
                     <div className="flex flex-col">
                       {mostLiked.map((post, idx) => {
@@ -429,50 +663,74 @@ export default function HomePage() {
                           <div key={post.id}>
                             <Link
                               href={`/posts/${post.id}`}
-                              className="block py-4"
+                              className="block py-3"
                               aria-label={`Open most liked post: ${post.title}`}
                             >
-                              <h3 className="font-semibold text-lg line-clamp-2">
+                              <p className="font-semibold text-sm line-clamp-2">
                                 {post.title}
-                              </h3>
+                              </p>
 
-                              <p className="text-sm text-gray-600 mt-1 line-clamp-2">
+                              <p className="text-xs text-gray-600 mt-1 line-clamp-2">
                                 {post.description}
                               </p>
 
-                              <div className="flex items-center gap-2 mt-3 text-sm">
-                                <Image
-                                  src="/like.svg"
-                                  alt="Likes"
-                                  width={16}
-                                  height={16}
-                                  className={
-                                    isLiked ? "opacity-100" : "opacity-80"
-                                  }
-                                  style={likeIconFilter(isLiked)}
-                                />
-                                <span
-                                  className={
-                                    isLiked ? "text-blue-600" : "text-gray-600"
+                              {/* Like + Comment row */}
+                              <div className="flex items-center gap-4 mt-3 text-xs text-gray-700">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    toggleLike(post.id);
+                                  }}
+                                  className={`flex items-center gap-2 transition ${
+                                    isLiked
+                                      ? "text-blue-600"
+                                      : "hover:text-blue-600"
+                                  }`}
+                                  aria-label={
+                                    isLiked
+                                      ? "Unlike this post"
+                                      : "Like this post"
                                   }
                                 >
-                                  {post.likes}
+                                  <Image
+                                    src="/like.svg"
+                                    alt="Like"
+                                    width={14}
+                                    height={14}
+                                    className={
+                                      isLiked ? "opacity-100" : "opacity-80"
+                                    }
+                                    style={likeIconFilter(isLiked)}
+                                  />
+                                  <span>{post.likes}</span>
+                                </button>
+
+                                <span className="flex items-center gap-2">
+                                  <Image
+                                    src="/comment.svg"
+                                    alt="Comments"
+                                    width={14}
+                                    height={14}
+                                  />
+                                  <span>{post.comments}</span>
                                 </span>
                               </div>
                             </Link>
 
                             {idx !== mostLiked.length - 1 && (
-                              <div className="border-b border-neutral-300" />
+                              <div className="border-b border-neutral-200" />
                             )}
                           </div>
                         );
                       })}
                     </div>
                   )}
-                </section>
-              </>
-            )}
-          </div>
+                </div>
+              </aside>
+            </div>
+          </>
         )}
       </div>
     </main>

@@ -18,3 +18,12 @@ api.interceptors.request.use((config) => {
 
   return config;
 });
+api.interceptors.request.use((config) => {
+  if (typeof window !== "undefined") {
+    const token = localStorage.getItem("token");
+    if (token) config.headers.Authorization = `Bearer ${token}`;
+    // DEBUG (hapus nanti)
+    // console.log("REQ", config.method, config.url, !!token);
+  }
+  return config;
+});
