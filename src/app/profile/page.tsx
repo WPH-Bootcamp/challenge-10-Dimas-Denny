@@ -146,7 +146,6 @@ export default function ProfilePage() {
         err?.response?.data,
         err,
       );
-      // kalau backend error, jangan bikin crash
       setMyPosts([]);
       setPostsError(
         err?.response?.data?.message || "Failed to load your posts",
@@ -161,6 +160,21 @@ export default function ProfilePage() {
   }, [loading, user, loadPosts]);
 
   const hasPosts = myPosts.length > 0;
+
+  // ===== latest 5 posts for desktop requirement =====
+  const latest5 = useMemo(() => myPosts.slice(0, 5), [myPosts]);
+
+  const getPostImage = (p: any): string => {
+    return (
+      p?.image ||
+      p?.imageUrl ||
+      p?.thumbnail ||
+      p?.cover ||
+      p?.media ||
+      p?.photo ||
+      ""
+    );
+  };
 
   // ===== Edit Profile modal =====
   const [openEdit, setOpenEdit] = useState(false);
@@ -235,7 +249,7 @@ export default function ProfilePage() {
   const avatarSrc =
     draftAvatarPreview?.trim() || profile.avatarUrl?.trim() || "/icons.svg";
 
-  // ===== Change password (coming soon endpoint) =====
+  // ===== Change password =====
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
@@ -252,7 +266,6 @@ export default function ProfilePage() {
 
     try {
       setSavingPassword(true);
-      // TODO: sambungkan ke backend update password kalau sudah ada
       await new Promise((r) => setTimeout(r, 600));
       alert("Password updated (coming soon backend)");
       setCurrentPassword("");
@@ -284,15 +297,10 @@ export default function ProfilePage() {
 
     try {
       setDeleting(true);
-
-      // ✅ Swagger: DELETE /posts/{id}
       await api.delete(`/posts/${deleteTarget.id}`);
-
-      // remove UI setelah sukses (nanti kalau backend sudah fix)
       setMyPosts((prev) => prev.filter((p) => p.id !== deleteTarget.id));
       closeDeleteModal();
     } catch (err: any) {
-      // Backend kamu currently bug 500 → jangan ubah list
       console.error(
         "DELETE POST ERROR:",
         err?.response?.status,
@@ -332,9 +340,6 @@ export default function ProfilePage() {
     try {
       setStatLoading(true);
 
-      // ✅ endpoints:
-      // GET /posts/{id}/likes
-      // GET /posts/{id}/comments
       const [likesRes, commentsRes] = await Promise.all([
         api.get(`/posts/${post.id}/likes`),
         api.get(`/posts/${post.id}/comments`),
@@ -391,670 +396,1016 @@ export default function ProfilePage() {
     <>
       <MobileHeader />
 
-      <div className="min-h-screen bg-gray-50">
-        {/* ======= TOP PROFILE HEADER (BORDER WRAPPED) ======= */}
-        <div className="bg-white border border-neutral-300 rounded-xl mx-4 mt-4 px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-12 h-12 rounded-full overflow-hidden border bg-white shrink-0">
-                <Image
-                  src={
-                    profile.avatarUrl?.trim() ? profile.avatarUrl : "/icons.svg"
-                  }
-                  alt="Avatar"
-                  width={48}
-                  height={48}
-                  className="object-cover w-full h-full"
-                />
-              </div>
-
-              <div className="min-w-0">
-                <p className="font-semibold text-gray-900 truncate">
-                  {profile.name}
-                </p>
-                <p className="text-sm text-gray-500 truncate">
-                  {profile.headline}
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={openModal}
-              className="text-[#0093DD] underline cursor-pointer underline-offset-4 text-sm font-medium shrink-0"
-            >
-              Edit Profile
-            </button>
-          </div>
-        </div>
-
-        {/* ======= TABS ======= */}
-        <div className="px-4 mt-4">
-          <div className="flex items-center gap-8 border-b border-neutral-300 justify-center">
-            <button
-              type="button"
-              onClick={() => setTab("posts")}
-              className={`w-44.25 py-3 text-md font-medium relative ${
-                tab === "posts" ? "text-[#0093DD]" : "text-black"
-              }`}
-            >
-              Your Post
-              {tab === "posts" && (
-                <span className="absolute left-0 -bottom-[1px] h-[2px] w-full bg-[#0093DD]" />
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setTab("password")}
-              className={`py-3 text-md font-medium relative ${
-                tab === "password" ? "text-[#0093DD]" : "text-black"
-              }`}
-            >
-              Change Password
-              {tab === "password" && (
-                <span className="absolute left-0 -bottom-[1px] h-[2px] w-full bg-[#0093DD]" />
-              )}
-            </button>
-          </div>
-        </div>
-
-        {/* ======= TAB CONTENT ======= */}
-        <div className="px-4 py-6">
-          {/* ===================== POSTS TAB ===================== */}
-          {tab === "posts" && (
-            <>
-              {/* Write Post button moved up ONLY if already has posts */}
-              {hasPosts && (
-                <div className="mt-4">
-                  <button
-                    type="button"
-                    onClick={() => router.push("/write")}
-                    className="
-                      bg-[#0093DD] text-white rounded-full w-full
-                      px-6 py-3 text-sm font-semibold
-                      flex items-center justify-center gap-2
-                      hover:opacity-90 transition cursor-pointer
-                    "
-                  >
-                    <Image
-                      src="/write.svg"
-                      alt="Write"
-                      width={18}
-                      height={18}
-                    />
-                    Write Post
-                  </button>
-                </div>
-              )}
-
-              {/* Loading / Error */}
-              {postsLoading && (
-                <p className="text-center text-gray-400 mt-8">
-                  Loading your posts...
-                </p>
-              )}
-
-              {!postsLoading && postsError && (
-                <div className="mt-8 text-center">
-                  <p className="text-red-500 text-sm mb-3">{postsError}</p>
-                  <button
-                    type="button"
-                    onClick={loadPosts}
-                    className="px-4 py-2 rounded-full border bg-white hover:bg-gray-50 text-sm font-medium"
-                  >
-                    Retry
-                  </button>
-                </div>
-              )}
-
-              {/* Empty state (ONLY when no posts) */}
-              {!postsLoading && !postsError && !hasPosts && (
-                <div className="flex flex-col items-center text-center mt-14">
+      {/* ===================== MOBILE (KEEP YOUR OLD UI) ===================== */}
+      <div className="md:hidden">
+        <div className="min-h-screen bg-gray-50">
+          {/* ======= TOP PROFILE HEADER (BORDER WRAPPED) ======= */}
+          <div className="bg-white border border-neutral-300 rounded-xl mx-4 mt-4 px-4 py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-12 h-12 rounded-full overflow-hidden border bg-white shrink-0">
                   <Image
-                    src="/noPost.svg"
-                    alt="No posts"
-                    width={180}
-                    height={180}
-                    className="mb-6"
+                    src={
+                      profile.avatarUrl?.trim()
+                        ? profile.avatarUrl
+                        : "/icons.svg"
+                    }
+                    alt="Avatar"
+                    width={48}
+                    height={48}
+                    className="object-cover w-full h-full"
                   />
+                </div>
 
-                  <p className="text-sm font-semibold text-gray-900 mb-2">
-                    Your writing journey starts here
+                <div className="min-w-0">
+                  <p className="font-semibold text-gray-900 truncate">
+                    {profile.name}
                   </p>
-
-                  <p className="text-sm text-gray-500 mb-6">
-                    No posts yet, but every great writer starts with the first
-                    one.
+                  <p className="text-sm text-gray-500 truncate">
+                    {profile.headline}
                   </p>
-
-                  {/* button stays below empty state and uses w-60 */}
-                  <button
-                    type="button"
-                    onClick={() => router.push("/write")}
-                    className="
-                      bg-[#0093DD] text-white rounded-full w-60
-                      px-6 py-3 text-sm font-semibold
-                      flex items-center justify-center gap-2
-                      hover:opacity-90 transition
-                    "
-                  >
-                    <Image
-                      src="/write.svg"
-                      alt="Write"
-                      width={18}
-                      height={18}
-                    />
-                    Write Post
-                  </button>
-                </div>
-              )}
-
-              {/* Posts list (latest 5) */}
-              {!postsLoading && !postsError && hasPosts && (
-                <div className="mt-6">
-                  <p className="text-sm font-semibold text-gray-900 mb-4">
-                    Latest 5 posts
-                  </p>
-
-                  <div className="flex flex-col gap-4">
-                    {myPosts.slice(0, 5).map((p) => (
-                      <div
-                        key={p.id}
-                        className="bg-white border border-neutral-300 rounded-xl p-4"
-                      >
-                        {/* tags */}
-                        {Array.isArray((p as any)?.tags) &&
-                          (p as any).tags.length > 0 && (
-                            <div className="flex flex-wrap gap-2 mb-3">
-                              {(p as any).tags.slice(0, 3).map((t: string) => (
-                                <span
-                                  key={t}
-                                  className="px-3 py-1 text-xs border border-neutral-300 rounded-xl bg-white"
-                                >
-                                  {t}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-
-                        {/* title + content */}
-                        {p.title && (
-                          <p className="text-sm font-semibold text-gray-900 mb-2">
-                            {p.title}
-                          </p>
-                        )}
-
-                        <p className="text-sm text-gray-700 whitespace-pre-line line-clamp-4">
-                          {(p as any)?.content ||
-                            (p as any)?.description ||
-                            "-"}
-                        </p>
-
-                        <p className="text-xs text-gray-500 mt-3">
-                          Created at {formatDateTime((p as any)?.createdAt)} |{" "}
-                          Last Updated {formatDateTime((p as any)?.updatedAt)}
-                        </p>
-
-                        <div className="flex items-center gap-6 mt-3 text-sm">
-                          <button
-                            type="button"
-                            onClick={() => openStatModal(p)}
-                            className="text-[#0093DD] font-medium"
-                          >
-                            Statistic
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => alert("Edit (coming soon)")}
-                            className="text-[#0093DD] font-medium"
-                          >
-                            Edit
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => openDeleteModal(p)}
-                            className="text-[#EE1D52] underline font-medium"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-
-          {/* ===================== CHANGE PASSWORD TAB ===================== */}
-          {tab === "password" && (
-            <div className="bg-white rounded-xl p-4 border border-neutral-300">
-              {/* Current Password */}
-              <div className="mb-4">
-                <label className="text-sm font-semibold text-gray-900">
-                  Current Password
-                </label>
-                <div className="relative mt-2">
-                  <input
-                    type={showCurrent ? "text" : "password"}
-                    value={currentPassword}
-                    onChange={(e) => setCurrentPassword(e.target.value)}
-                    placeholder="Enter current password"
-                    className="w-full rounded-xl border border-neutral-300 px-3 py-3 pr-10 text-sm outline-none focus:ring-2 focus:ring-blue-300"
-                    disabled={savingPassword}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowCurrent((v) => !v)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center"
-                    aria-label="Toggle current password"
-                  >
-                    {showCurrent ? <Eye size={18} /> : <EyeOff size={18} />}
-                  </button>
-                </div>
-              </div>
-
-              {/* New Password */}
-              <div className="mb-4">
-                <label className="text-sm font-semibold text-gray-900">
-                  New Password
-                </label>
-                <div className="relative mt-2">
-                  <input
-                    type={showNew ? "text" : "password"}
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Enter new password"
-                    className="w-full rounded-xl border border-neutral-300 px-3 py-3 pr-10 text-sm outline-none focus:ring-2 focus:ring-blue-300"
-                    disabled={savingPassword}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowNew((v) => !v)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center"
-                    aria-label="Toggle new password"
-                  >
-                    {showNew ? <Eye size={18} /> : <EyeOff size={18} />}
-                  </button>
-                </div>
-              </div>
-
-              {/* Confirm New Password */}
-              <div className="mb-6">
-                <label className="text-sm font-semibold text-gray-900">
-                  Confirm New Password
-                </label>
-                <div className="relative mt-2">
-                  <input
-                    type={showConfirm ? "text" : "password"}
-                    value={confirmNewPassword}
-                    onChange={(e) => setConfirmNewPassword(e.target.value)}
-                    placeholder="Enter confirm new password"
-                    className="w-full rounded-xl border border-neutral-300 px-3 py-3 pr-10 text-sm outline-none focus:ring-2 focus:ring-blue-300"
-                    disabled={savingPassword}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirm((v) => !v)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center"
-                    aria-label="Toggle confirm password"
-                  >
-                    {showConfirm ? <Eye size={18} /> : <EyeOff size={18} />}
-                  </button>
                 </div>
               </div>
 
               <button
                 type="button"
-                onClick={submitChangePassword}
-                disabled={savingPassword}
-                className="w-full bg-[#0093DD] text-white py-3 rounded-full font-semibold text-sm hover:opacity-90 transition disabled:opacity-60"
+                onClick={openModal}
+                className="text-[#0093DD] underline cursor-pointer underline-offset-4 text-sm font-medium shrink-0"
               >
-                {savingPassword ? "Updating..." : "Update Password"}
+                Edit Profile
               </button>
             </div>
-          )}
-        </div>
+          </div>
 
-        {/* ===================== EDIT PROFILE MODAL ===================== */}
-        {openEdit && (
-          <div className="fixed inset-0 z-80">
-            <div
-              className="absolute inset-0 bg-black/30"
-              onClick={closeModal}
-              aria-hidden="true"
-            />
-            <div className="absolute inset-0 flex items-start justify-center p-4 pt-20">
-              <div className="w-full max-w-md rounded-2xl bg-white shadow-xl overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-4 border-b border-neutral-200">
-                  <p className="text-md font-bold text-gray-900">
-                    Edit Profile
+          {/* ======= TABS ======= */}
+          <div className="px-4 mt-4">
+            <div className="flex items-center gap-8 border-b border-neutral-300 justify-center">
+              <button
+                type="button"
+                onClick={() => setTab("posts")}
+                className={`w-44.25 py-3 text-md font-medium relative ${
+                  tab === "posts" ? "text-[#0093DD]" : "text-black"
+                }`}
+              >
+                Your Post
+                {tab === "posts" && (
+                  <span className="absolute left-0 -bottom-[1px] h-[2px] w-full bg-[#0093DD]" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTab("password")}
+                className={`py-3 text-md font-medium relative ${
+                  tab === "password" ? "text-[#0093DD]" : "text-black"
+                }`}
+              >
+                Change Password
+                {tab === "password" && (
+                  <span className="absolute left-0 -bottom-[1px] h-[2px] w-full bg-[#0093DD]" />
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* ======= TAB CONTENT ======= */}
+          <div className="px-4 py-6">
+            {/* ===================== POSTS TAB ===================== */}
+            {tab === "posts" && (
+              <>
+                {hasPosts && (
+                  <div className="mt-4">
+                    <button
+                      type="button"
+                      onClick={() => router.push("/write")}
+                      className="
+                        bg-[#0093DD] text-white rounded-full w-full
+                        px-6 py-3 text-sm font-semibold
+                        flex items-center justify-center gap-2
+                        hover:opacity-90 transition cursor-pointer
+                      "
+                    >
+                      <Image
+                        src="/write.svg"
+                        alt="Write"
+                        width={18}
+                        height={18}
+                      />
+                      Write Post
+                    </button>
+                  </div>
+                )}
+
+                {postsLoading && (
+                  <p className="text-center text-gray-400 mt-8">
+                    Loading your posts...
                   </p>
-                  <button
-                    type="button"
-                    onClick={closeModal}
-                    className="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center disabled:opacity-50"
-                    aria-label="Close"
-                    disabled={savingProfile}
-                  >
-                    <X size={18} />
-                  </button>
+                )}
+
+                {!postsLoading && postsError && (
+                  <div className="mt-8 text-center">
+                    <p className="text-red-500 text-sm mb-3">{postsError}</p>
+                    <button
+                      type="button"
+                      onClick={loadPosts}
+                      className="px-4 py-2 rounded-full border bg-white hover:bg-gray-50 text-sm font-medium"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+
+                {!postsLoading && !postsError && !hasPosts && (
+                  <div className="flex flex-col items-center text-center mt-14">
+                    <Image
+                      src="/noPost.svg"
+                      alt="No posts"
+                      width={180}
+                      height={180}
+                      className="mb-6"
+                    />
+
+                    <p className="text-sm font-semibold text-gray-900 mb-2">
+                      Your writing journey starts here
+                    </p>
+
+                    <p className="text-sm text-gray-500 mb-6">
+                      No posts yet, but every great writer starts with the first
+                      one.
+                    </p>
+
+                    <button
+                      type="button"
+                      onClick={() => router.push("/write")}
+                      className="
+                        bg-[#0093DD] text-white rounded-full w-60
+                        px-6 py-3 text-sm font-semibold
+                        flex items-center justify-center gap-2
+                        hover:opacity-90 transition
+                      "
+                    >
+                      <Image
+                        src="/write.svg"
+                        alt="Write"
+                        width={18}
+                        height={18}
+                      />
+                      Write Post
+                    </button>
+                  </div>
+                )}
+
+                {!postsLoading && !postsError && hasPosts && (
+                  <div className="mt-6">
+                    <p className="text-sm font-semibold text-gray-900 mb-4">
+                      Latest 5 posts
+                    </p>
+
+                    <div className="flex flex-col gap-4">
+                      {myPosts.slice(0, 5).map((p) => (
+                        <div
+                          key={p.id}
+                          className="bg-white border border-neutral-300 rounded-xl p-4"
+                        >
+                          {p.title && (
+                            <p className="text-sm font-semibold text-gray-900 mb-2">
+                              {p.title}
+                            </p>
+                          )}
+
+                          {/* tags (di bawah judul) */}
+                          {Array.isArray((p as any)?.tags) &&
+                            (p as any).tags.length > 0 && (
+                              <div className="flex flex-wrap gap-2 mb-3">
+                                {(p as any).tags
+                                  .slice(0, 3)
+                                  .map((t: string) => (
+                                    <span
+                                      key={t}
+                                      className="px-3 py-1 text-xs border border-neutral-300 rounded-xl bg-white"
+                                    >
+                                      {t}
+                                    </span>
+                                  ))}
+                              </div>
+                            )}
+
+                          <p className="text-sm text-gray-700 whitespace-pre-line line-clamp-4">
+                            {(p as any)?.content ||
+                              (p as any)?.description ||
+                              "-"}
+                          </p>
+
+                          <p className="text-xs text-gray-500 mt-3">
+                            Created at {formatDateTime((p as any)?.createdAt)} |{" "}
+                            Last Updated {formatDateTime((p as any)?.updatedAt)}
+                          </p>
+
+                          <div className="flex items-center gap-6 mt-3 text-sm">
+                            <button
+                              type="button"
+                              onClick={() => openStatModal(p)}
+                              className="text-[#0093DD] font-medium"
+                            >
+                              Statistic
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => alert("Edit (coming soon)")}
+                              className="text-[#0093DD] font-medium"
+                            >
+                              Edit
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => openDeleteModal(p)}
+                              className="text-[#EE1D52] underline font-medium"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* ===================== CHANGE PASSWORD TAB ===================== */}
+            {tab === "password" && (
+              <div className="bg-white rounded-xl p-4 ">
+                {/* Current Password */}
+                <div className="mb-4">
+                  <label className="text-sm font-semibold text-gray-900">
+                    Current Password
+                  </label>
+                  <div className="relative mt-2">
+                    <input
+                      type={showCurrent ? "text" : "password"}
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      placeholder="Enter current password"
+                      className="w-full rounded-xl border border-neutral-300 px-3 py-3 pr-10 text-sm outline-none focus:ring-2 focus:ring-blue-300"
+                      disabled={savingPassword}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowCurrent((v) => !v)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center"
+                      aria-label="Toggle current password"
+                    >
+                      {showCurrent ? <Eye size={18} /> : <EyeOff size={18} />}
+                    </button>
+                  </div>
                 </div>
 
-                <div className="px-4 py-5">
-                  {/* Avatar + edit icon (svg only, 24x24, no background) */}
-                  <div className="flex justify-center mb-6">
-                    <div className="relative w-24 h-24">
-                      <div className="w-24 h-24 rounded-full overflow-hidden border border-neutral-300 bg-white">
-                        <Image
-                          src={avatarSrc}
-                          alt="Avatar preview"
-                          width={96}
-                          height={96}
-                          className="object-cover w-full h-full"
-                        />
-                      </div>
+                {/* New Password */}
+                <div className="mb-4">
+                  <label className="text-sm font-semibold text-gray-900">
+                    New Password
+                  </label>
+                  <div className="relative mt-2">
+                    <input
+                      type={showNew ? "text" : "password"}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Enter new password"
+                      className="w-full rounded-xl border border-neutral-300 px-3 py-3 pr-10 text-sm outline-none focus:ring-2 focus:ring-blue-300"
+                      disabled={savingPassword}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNew((v) => !v)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center"
+                      aria-label="Toggle new password"
+                    >
+                      {showNew ? <Eye size={18} /> : <EyeOff size={18} />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Confirm New Password */}
+                <div className="mb-6">
+                  <label className="text-sm font-semibold text-gray-900">
+                    Confirm New Password
+                  </label>
+                  <div className="relative mt-2">
+                    <input
+                      type={showConfirm ? "text" : "password"}
+                      value={confirmNewPassword}
+                      onChange={(e) => setConfirmNewPassword(e.target.value)}
+                      placeholder="Enter confirm new password"
+                      className="w-full rounded-xl border border-neutral-300 px-3 py-3 pr-10 text-sm outline-none focus:ring-2 focus:ring-blue-300"
+                      disabled={savingPassword}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirm((v) => !v)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center"
+                      aria-label="Toggle confirm password"
+                    >
+                      {showConfirm ? <Eye size={18} /> : <EyeOff size={18} />}
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={submitChangePassword}
+                  disabled={savingPassword}
+                  className="w-full bg-[#0093DD] text-white py-3 rounded-full font-semibold text-sm hover:opacity-90 transition disabled:opacity-60"
+                >
+                  {savingPassword ? "Updating..." : "Update Password"}
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="h-10" />
+        </div>
+      </div>
+
+      {/* ===================== DESKTOP (NEW LAYOUT) ===================== */}
+      <div className="hidden md:block bg-white min-h-screen">
+        <div className="w-[800px] mx-auto h-full pt-10 pb-16">
+          {/* Header profile */}
+          <div className="bg-white border border-neutral-300 rounded-xl px-6 py-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4 min-w-0">
+                <div className="w-20 h-20 rounded-full overflow-hidden border bg-white shrink-0">
+                  <Image
+                    src={
+                      profile.avatarUrl?.trim()
+                        ? profile.avatarUrl
+                        : "/icons.svg"
+                    }
+                    alt="Avatar"
+                    width={80}
+                    height={80}
+                    className="object-cover w-full h-full"
+                  />
+                </div>
+
+                <div className="min-w-0">
+                  <p className="text-xl font-bold text-gray-900 truncate">
+                    {profile.name}
+                  </p>
+                  <p className="text-sm text-gray-500 truncate">
+                    {profile.headline}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={openModal}
+                className="text-[#0093DD] underline cursor-pointer underline-offset-4 text-sm font-medium shrink-0"
+              >
+                Edit Profile
+              </button>
+            </div>
+          </div>
+
+          {/* Tabs (50% width left, under photo/header) */}
+          <div className="mt-6 w-1/2">
+            <div className="flex items-center gap-10 border-b border-neutral-300">
+              <button
+                type="button"
+                onClick={() => setTab("posts")}
+                className={`py-3 text-md font-medium relative ${
+                  tab === "posts" ? "text-[#0093DD]" : "text-black"
+                }`}
+              >
+                Your Post
+                {tab === "posts" && (
+                  <span className="absolute left-0 -bottom-[1px] h-[2px] w-full bg-[#0093DD]" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTab("password")}
+                className={`py-3 text-md font-medium relative ${
+                  tab === "password" ? "text-[#0093DD]" : "text-black"
+                }`}
+              >
+                Change Password
+                {tab === "password" && (
+                  <span className="absolute left-0 -bottom-px h-0.5 w-full bg-[#0093DD]" />
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div className="mt-6">
+            {/* POSTS TAB */}
+            {tab === "posts" && (
+              <>
+                {/* loading/error */}
+                {postsLoading && (
+                  <p className="text-center text-gray-400 mt-10">
+                    Loading your posts...
+                  </p>
+                )}
+
+                {!postsLoading && postsError && (
+                  <div className="mt-10 text-center">
+                    <p className="text-red-500 text-sm mb-3">{postsError}</p>
+                    <button
+                      type="button"
+                      onClick={loadPosts}
+                      className="px-4 py-2 rounded-full border bg-white hover:bg-gray-50 text-sm font-medium"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+
+                {!postsLoading && !postsError && !hasPosts && (
+                  <div className="mt-12 border border-neutral-200 rounded-2xl p-10 text-center">
+                    <p className="text-gray-900 font-semibold">
+                      Your writing journey starts here
+                    </p>
+                    <p className="text-gray-500 text-sm mt-2">
+                      No posts yet, but every great writer starts with the first
+                      one.
+                    </p>
+
+                    <button
+                      type="button"
+                      onClick={() => router.push("/write")}
+                      className="mt-6 w-[182px] h-[44px] rounded-full bg-[#0093DD] text-white font-semibold text-sm inline-flex items-center justify-center gap-2 hover:opacity-90 transition"
+                    >
+                      <Image
+                        src="/write.svg"
+                        alt="Write"
+                        width={18}
+                        height={18}
+                      />
+                      Write Post
+                    </button>
+                  </div>
+                )}
+
+                {!postsLoading && !postsError && hasPosts && (
+                  <>
+                    {/* Latest 5 + write post button (right) */}
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-gray-900">
+                        Latest 5 posts
+                      </p>
 
                       <button
                         type="button"
-                        onClick={() => fileRef.current?.click()}
-                        aria-label="Change avatar"
-                        disabled={savingProfile}
-                        className="absolute bottom-1 right-1 w-6 h-6 flex items-center justify-center disabled:opacity-60"
+                        onClick={() => router.push("/write")}
+                        className="w-[182px] h-[44px] rounded-full bg-[#0093DD] text-white text-sm font-semibold inline-flex items-center justify-center gap-2 hover:opacity-90 transition"
                       >
                         <Image
-                          src="/editAvatar.svg"
-                          alt="Edit avatar"
-                          width={24}
-                          height={24}
+                          src="/write.svg"
+                          alt="Write"
+                          width={18}
+                          height={18}
                         />
+                        Write Post
                       </button>
+                    </div>
 
-                      <input
-                        ref={fileRef}
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(e) => onPickAvatar(e.target.files?.[0])}
+                    {/* Posts list with image (left 340x258) */}
+                    <div className="mt-4 flex flex-col gap-4">
+                      {latest5.map((p) => {
+                        const img = getPostImage(p as any);
+
+                        return (
+                          <Link
+                            key={p.id}
+                            href={`/posts/${p.id}`}
+                            className="block bg-white border border-neutral-300 rounded-2xl p-4 hover:bg-gray-50 transition"
+                          >
+                            <div className="flex gap-6">
+                              {/* image */}
+                              <div className="w-[340px] h-[258px] shrink-0 overflow-hidden rounded-xl border border-neutral-200 bg-gray-100">
+                                {img ? (
+                                  <Image
+                                    src={img}
+                                    alt={p.title || "Post image"}
+                                    width={340}
+                                    height={258}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center text-sm text-gray-400">
+                                    No image
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* content */}
+                              <div className="flex-1 min-w-0">
+                                {/* title */}
+                                {p.title && (
+                                  <p className="text-lg font-bold text-gray-900 mb-2 line-clamp-2">
+                                    {p.title}
+                                  </p>
+                                )}
+
+                                {/* tags (di bawah judul) */}
+                                {Array.isArray((p as any)?.tags) &&
+                                  (p as any).tags.length > 0 && (
+                                    <div className="flex flex-wrap gap-2 mb-3">
+                                      {(p as any).tags
+                                        .slice(0, 3)
+                                        .map((t: string) => (
+                                          <span
+                                            key={t}
+                                            className="px-3 py-1 text-xs border border-neutral-300 rounded-xl bg-white text-gray-700"
+                                          >
+                                            {t}
+                                          </span>
+                                        ))}
+                                    </div>
+                                  )}
+
+                                {/* text */}
+                                <p className="text-sm text-gray-700 whitespace-pre-line line-clamp-4">
+                                  {(p as any)?.content ||
+                                    (p as any)?.description ||
+                                    "-"}
+                                </p>
+
+                                <p className="text-xs text-gray-500 mt-3">
+                                  Created at{" "}
+                                  {formatDateTime((p as any)?.createdAt)} | Last
+                                  Updated{" "}
+                                  {formatDateTime((p as any)?.updatedAt)}
+                                </p>
+
+                                {/* actions (desktop - keep same) */}
+                                <div className="flex items-center gap-6 mt-4 text-sm">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      openStatModal(p);
+                                    }}
+                                    className="text-[#0093DD] font-medium"
+                                  >
+                                    Statistic
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      alert("Edit (coming soon)");
+                                    }}
+                                    className="text-[#0093DD] font-medium"
+                                  >
+                                    Edit
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      openDeleteModal(p);
+                                    }}
+                                    className="text-[#EE1D52] underline font-medium"
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {/* PASSWORD TAB (50% width, left) */}
+            {tab === "password" && (
+              <div className="w-[538px] h-[344px] bg-white rounded-xl p-4">
+                {/* Current Password */}
+                <div className="mb-4">
+                  <label className="text-sm font-semibold text-gray-900">
+                    Current Password
+                  </label>
+                  <div className="relative mt-2">
+                    <input
+                      type={showCurrent ? "text" : "password"}
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      placeholder="Enter current password"
+                      className="w-full rounded-xl border border-neutral-300 px-3 py-3 pr-10 text-sm outline-none focus:ring-2 focus:ring-blue-300"
+                      disabled={savingPassword}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowCurrent((v) => !v)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center"
+                      aria-label="Toggle current password"
+                    >
+                      {showCurrent ? <Eye size={18} /> : <EyeOff size={18} />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* New Password */}
+                <div className="mb-4">
+                  <label className="text-sm font-semibold text-gray-900">
+                    New Password
+                  </label>
+                  <div className="relative mt-2">
+                    <input
+                      type={showNew ? "text" : "password"}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Enter new password"
+                      className="w-full rounded-xl border border-neutral-300 px-3 py-3 pr-10 text-sm outline-none focus:ring-2 focus:ring-blue-300"
+                      disabled={savingPassword}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNew((v) => !v)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center"
+                      aria-label="Toggle new password"
+                    >
+                      {showNew ? <Eye size={18} /> : <EyeOff size={18} />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Confirm New Password */}
+                <div className="mb-6">
+                  <label className="text-sm font-semibold text-gray-900">
+                    Confirm New Password
+                  </label>
+                  <div className="relative mt-2">
+                    <input
+                      type={showConfirm ? "text" : "password"}
+                      value={confirmNewPassword}
+                      onChange={(e) => setConfirmNewPassword(e.target.value)}
+                      placeholder="Enter confirm new password"
+                      className="w-full rounded-xl border border-neutral-300 px-3 py-3 pr-10 text-sm outline-none focus:ring-2 focus:ring-blue-300"
+                      disabled={savingPassword}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirm((v) => !v)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center"
+                      aria-label="Toggle confirm password"
+                    >
+                      {showConfirm ? <Eye size={18} /> : <EyeOff size={18} />}
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={submitChangePassword}
+                  disabled={savingPassword}
+                  className="w-full bg-[#0093DD] text-white py-3 rounded-full font-semibold text-sm hover:opacity-90 transition disabled:opacity-60"
+                >
+                  {savingPassword ? "Updating..." : "Update Password"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ===================== MODALS (KEEP SAME) ===================== */}
+      {/* EDIT PROFILE MODAL */}
+      {openEdit && (
+        <div className="fixed inset-0 z-80">
+          <div
+            className="absolute inset-0 bg-black/30"
+            onClick={closeModal}
+            aria-hidden="true"
+          />
+          <div className="absolute inset-0 flex items-start justify-center p-4 pt-20">
+            <div className="w-full max-w-md rounded-2xl bg-white shadow-xl overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-4 border-b border-neutral-200">
+                <p className="text-md font-bold text-gray-900">Edit Profile</p>
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  className="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center disabled:opacity-50"
+                  aria-label="Close"
+                  disabled={savingProfile}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="px-4 py-5">
+                <div className="flex justify-center mb-6">
+                  <div className="relative w-24 h-24">
+                    <div className="w-24 h-24 rounded-full overflow-hidden border border-neutral-300 bg-white">
+                      <Image
+                        src={avatarSrc}
+                        alt="Avatar preview"
+                        width={96}
+                        height={96}
+                        className="object-cover w-full h-full"
                       />
                     </div>
-                  </div>
 
-                  <div className="mb-4">
-                    <label className="text-sm font-medium text-gray-900">
-                      Name
-                    </label>
-                    <input
-                      value={draftName}
-                      onChange={(e) => setDraftName(e.target.value)}
-                      className="mt-2 w-full rounded-xl border border-neutral-300 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-300 disabled:opacity-60"
-                      placeholder="Your name"
+                    <button
+                      type="button"
+                      onClick={() => fileRef.current?.click()}
+                      aria-label="Change avatar"
                       disabled={savingProfile}
+                      className="absolute bottom-1 right-1 w-6 h-6 flex items-center justify-center disabled:opacity-60"
+                    >
+                      <Image
+                        src="/editAvatar.svg"
+                        alt="Edit avatar"
+                        width={24}
+                        height={24}
+                      />
+                    </button>
+
+                    <input
+                      ref={fileRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => onPickAvatar(e.target.files?.[0])}
                     />
                   </div>
-
-                  <div className="mb-6">
-                    <label className="text-sm font-medium text-gray-900">
-                      Profile Headline
-                    </label>
-                    <input
-                      value={draftHeadline}
-                      onChange={(e) => setDraftHeadline(e.target.value)}
-                      className="mt-2 w-full rounded-xl border border-neutral-300 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-300 disabled:opacity-60"
-                      placeholder="Frontend Developer"
-                      disabled={savingProfile}
-                    />
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={saveProfile}
-                    disabled={savingProfile}
-                    className="w-full bg-blue-300 text-gray-900 py-3 rounded-full font-semibold text-sm hover:opacity-90 transition disabled:opacity-60"
-                  >
-                    {savingProfile ? "Updating..." : "Update Profile"}
-                  </button>
                 </div>
+
+                <div className="mb-4">
+                  <label className="text-sm font-medium text-gray-900">
+                    Name
+                  </label>
+                  <input
+                    value={draftName}
+                    onChange={(e) => setDraftName(e.target.value)}
+                    className="mt-2 w-full rounded-xl border border-neutral-300 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-300 disabled:opacity-60"
+                    placeholder="Your name"
+                    disabled={savingProfile}
+                  />
+                </div>
+
+                <div className="mb-6">
+                  <label className="text-sm font-medium text-gray-900">
+                    Profile Headline
+                  </label>
+                  <input
+                    value={draftHeadline}
+                    onChange={(e) => setDraftHeadline(e.target.value)}
+                    className="mt-2 w-full rounded-xl border border-neutral-300 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-300 disabled:opacity-60"
+                    placeholder="Frontend Developer"
+                    disabled={savingProfile}
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={saveProfile}
+                  disabled={savingProfile}
+                  className="w-full bg-[#0093DD] text-white
+                   py-3 rounded-full font-semibold text-sm hover:opacity-90 transition disabled:opacity-60"
+                >
+                  {savingProfile ? "Updating..." : "Update Profile"}
+                </button>
               </div>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* ===================== DELETE MODAL ===================== */}
-        {openDelete && (
-          <div className="fixed inset-0 z-[90]">
+      {/* DELETE MODAL */}
+      {openDelete && (
+        <div className="fixed inset-0 z-[90]">
+          <div
+            className="absolute inset-0 bg-black/30"
+            onClick={closeDeleteModal}
+            aria-hidden="true"
+          />
+          <div className="absolute inset-0 flex items-start justify-center pt-28 px-4">
             <div
-              className="absolute inset-0 bg-black/30"
-              onClick={closeDeleteModal}
-              aria-hidden="true"
-            />
-            <div className="absolute inset-0 flex items-start justify-center pt-28 px-4">
-              <div
-                className="bg-white rounded-2xl shadow-xl border border-neutral-200"
-                style={{ width: 345, height: 186 }}
-              >
-                <div className="flex items-center justify-between px-4 pt-4">
-                  <p className="text-md font-bold text-gray-900">Delete</p>
+              className="bg-white rounded-2xl shadow-xl border border-neutral-200"
+              style={{ width: 345, height: 186 }}
+            >
+              <div className="flex items-center justify-between px-4 pt-4">
+                <p className="text-md font-bold text-gray-900">Delete</p>
+                <button
+                  type="button"
+                  onClick={closeDeleteModal}
+                  disabled={deleting}
+                  className="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center disabled:opacity-50"
+                  aria-label="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="px-4 pt-4">
+                <p className="text-center text-gray-900 font-medium">
+                  Are you sure to delete?
+                </p>
+
+                <div className="mt-6 flex items-center justify-between gap-3">
                   <button
                     type="button"
                     onClick={closeDeleteModal}
                     disabled={deleting}
-                    className="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center disabled:opacity-50"
-                    aria-label="Close"
+                    className="h-10 rounded-full bg-white text-sm font-semibold hover:bg-gray-50 disabled:opacity-60"
+                    style={{ width: 156.5 }}
                   >
-                    <X size={18} />
+                    Cancel
                   </button>
-                </div>
 
-                <div className="px-4 pt-4">
-                  <p className="text-center text-gray-900 font-medium">
-                    Are you sure to delete?
-                  </p>
-
-                  <div className="mt-6 flex items-center justify-between gap-3">
-                    <button
-                      type="button"
-                      onClick={closeDeleteModal}
-                      disabled={deleting}
-                      className="h-10 rounded-full bg-white text-sm font-semibold hover:bg-gray-50 disabled:opacity-60"
-                      style={{ width: 156.5 }}
-                    >
-                      Cancel
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={confirmDelete}
-                      disabled={deleting}
-                      className="h-10 rounded-full bg-[#EE1D52] text-white text-sm font-semibold hover:opacity-90 disabled:opacity-60"
-                      style={{ width: 156.5 }}
-                    >
-                      {deleting ? "Deleting..." : "Delete"}
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={confirmDelete}
+                    disabled={deleting}
+                    className="h-10 rounded-full bg-[#EE1D52] text-white text-sm font-semibold hover:opacity-90 disabled:opacity-60"
+                    style={{ width: 156.5 }}
+                  >
+                    {deleting ? "Deleting..." : "Delete"}
+                  </button>
                 </div>
               </div>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* ===================== STATISTIC MODAL ===================== */}
-        {openStat && (
-          <div className="fixed inset-0 z-[95]">
+      {/* STATISTIC MODAL (unchanged) */}
+      {openStat && (
+        <div className="fixed inset-0 z-[95]">
+          <div
+            className="absolute inset-0 bg-black/30"
+            onClick={closeStatModal}
+            aria-hidden="true"
+          />
+
+          <div className="absolute inset-0 flex items-start justify-center pt-28 px-4">
             <div
-              className="absolute inset-0 bg-black/30"
-              onClick={closeStatModal}
-              aria-hidden="true"
-            />
+              className="bg-white rounded-2xl shadow-xl border border-neutral-200 overflow-hidden"
+              style={{ width: 345 }}
+            >
+              <div className="flex items-center justify-between px-4 pt-4">
+                <p className="text-md font-bold text-gray-900">Statistic</p>
+                <button
+                  type="button"
+                  onClick={closeStatModal}
+                  disabled={statLoading}
+                  className="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center disabled:opacity-50"
+                  aria-label="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
 
-            <div className="absolute inset-0 flex items-start justify-center pt-28 px-4">
-              <div
-                className="bg-white rounded-2xl shadow-xl border border-neutral-200 overflow-hidden"
-                style={{ width: 345 }}
-              >
-                <div className="flex items-center justify-between px-4 pt-4">
-                  <p className="text-md font-bold text-gray-900">Statistic</p>
+              <div className="px-4 mt-3">
+                <div className="flex items-center gap-10 border-b border-neutral-300 justify-center">
                   <button
                     type="button"
-                    onClick={closeStatModal}
-                    disabled={statLoading}
-                    className="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center disabled:opacity-50"
-                    aria-label="Close"
+                    onClick={() => setStatTab("like")}
+                    className={`py-3 text-md font-medium relative flex items-center gap-2 ${
+                      statTab === "like" ? "text-[#0093DD]" : "text-black"
+                    }`}
                   >
-                    <X size={18} />
+                    <Image src="/like.svg" alt="Like" width={16} height={16} />
+                    Like
+                    {statTab === "like" && (
+                      <span className="absolute left-0 -bottom-[1px] h-[2px] w-full bg-[#0093DD]" />
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setStatTab("comment")}
+                    className={`py-3 text-md font-medium relative flex items-center gap-2 ${
+                      statTab === "comment" ? "text-[#0093DD]" : "text-black"
+                    }`}
+                  >
+                    <Image
+                      src="/comment.svg"
+                      alt="Comment"
+                      width={16}
+                      height={16}
+                    />
+                    Comment
+                    {statTab === "comment" && (
+                      <span className="absolute left-0 -bottom-[1px] h-[2px] w-full bg-[#0093DD]" />
+                    )}
                   </button>
                 </div>
+              </div>
 
-                {/* Tabs */}
-                <div className="px-4 mt-3">
-                  <div className="flex items-center gap-10 border-b border-neutral-300 justify-center">
-                    <button
-                      type="button"
-                      onClick={() => setStatTab("like")}
-                      className={`py-3 text-md font-medium relative flex items-center gap-2 ${
-                        statTab === "like" ? "text-[#0093DD]" : "text-black"
-                      }`}
-                    >
-                      <Image
-                        src="/like.svg"
-                        alt="Like"
-                        width={16}
-                        height={16}
-                      />
-                      Like
-                      {statTab === "like" && (
-                        <span className="absolute left-0 -bottom-[1px] h-[2px] w-full bg-[#0093DD]" />
-                      )}
-                    </button>
+              <div className="px-4 py-4 max-h-[320px] overflow-auto">
+                {statError && (
+                  <p className="text-sm text-red-500 text-center">
+                    {statError}
+                  </p>
+                )}
 
-                    <button
-                      type="button"
-                      onClick={() => setStatTab("comment")}
-                      className={`py-3 text-md font-medium relative flex items-center gap-2 ${
-                        statTab === "comment" ? "text-[#0093DD]" : "text-black"
-                      }`}
-                    >
-                      <Image
-                        src="/comment.svg"
-                        alt="Comment"
-                        width={16}
-                        height={16}
-                      />
-                      Comment
-                      {statTab === "comment" && (
-                        <span className="absolute left-0 -bottom-[1px] h-[2px] w-full bg-[#0093DD]" />
-                      )}
-                    </button>
+                {statLoading && (
+                  <p className="text-sm text-gray-400 text-center">
+                    Loading...
+                  </p>
+                )}
+
+                {!statLoading && !statError && statTab === "like" && (
+                  <div className="flex flex-col gap-3">
+                    {statLikes.length === 0 ? (
+                      <p className="text-sm text-gray-500 text-center py-8">
+                        No likes yet
+                      </p>
+                    ) : (
+                      statLikes.map((u) => (
+                        <div
+                          key={String(u.id)}
+                          className="flex items-center gap-3 border border-neutral-200 rounded-xl p-3"
+                        >
+                          <div className="w-9 h-9 rounded-full overflow-hidden border bg-white shrink-0">
+                            <Image
+                              src={
+                                u.avatarUrl?.trim() ? u.avatarUrl : "/icons.svg"
+                              }
+                              alt={u.name}
+                              width={36}
+                              height={36}
+                              className="object-cover w-full h-full"
+                            />
+                          </div>
+                          <p className="text-sm font-medium text-gray-900 truncate">
+                            {u.name}
+                          </p>
+                        </div>
+                      ))
+                    )}
                   </div>
-                </div>
+                )}
 
-                {/* Content */}
-                <div className="px-4 py-4 max-h-[320px] overflow-auto">
-                  {statError && (
-                    <p className="text-sm text-red-500 text-center">
-                      {statError}
-                    </p>
-                  )}
-
-                  {statLoading && (
-                    <p className="text-sm text-gray-400 text-center">
-                      Loading...
-                    </p>
-                  )}
-
-                  {!statLoading && !statError && statTab === "like" && (
-                    <div className="flex flex-col gap-3">
-                      {statLikes.length === 0 ? (
-                        <p className="text-sm text-gray-500 text-center py-8">
-                          No likes yet
-                        </p>
-                      ) : (
-                        statLikes.map((u) => (
-                          <div
-                            key={String(u.id)}
-                            className="flex items-center gap-3 border border-neutral-200 rounded-xl p-3"
-                          >
+                {!statLoading && !statError && statTab === "comment" && (
+                  <div className="flex flex-col gap-3">
+                    {statComments.length === 0 ? (
+                      <p className="text-sm text-gray-500 text-center py-8">
+                        No comments yet
+                      </p>
+                    ) : (
+                      statComments.map((c) => (
+                        <div
+                          key={String(c.id)}
+                          className="border border-neutral-200 rounded-xl p-3"
+                        >
+                          <div className="flex items-center gap-3">
                             <div className="w-9 h-9 rounded-full overflow-hidden border bg-white shrink-0">
                               <Image
                                 src={
-                                  u.avatarUrl?.trim()
-                                    ? u.avatarUrl
+                                  c.avatarUrl?.trim()
+                                    ? c.avatarUrl
                                     : "/icons.svg"
                                 }
-                                alt={u.name}
+                                alt={c.name}
                                 width={36}
                                 height={36}
                                 className="object-cover w-full h-full"
                               />
                             </div>
-                            <p className="text-sm font-medium text-gray-900 truncate">
-                              {u.name}
-                            </p>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  )}
 
-                  {!statLoading && !statError && statTab === "comment" && (
-                    <div className="flex flex-col gap-3">
-                      {statComments.length === 0 ? (
-                        <p className="text-sm text-gray-500 text-center py-8">
-                          No comments yet
-                        </p>
-                      ) : (
-                        statComments.map((c) => (
-                          <div
-                            key={String(c.id)}
-                            className="border border-neutral-200 rounded-xl p-3"
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className="w-9 h-9 rounded-full overflow-hidden border bg-white shrink-0">
-                                <Image
-                                  src={
-                                    c.avatarUrl?.trim()
-                                      ? c.avatarUrl
-                                      : "/icons.svg"
-                                  }
-                                  alt={c.name}
-                                  width={36}
-                                  height={36}
-                                  className="object-cover w-full h-full"
-                                />
-                              </div>
-
-                              <div className="min-w-0 flex-1">
-                                <p className="text-sm font-medium text-gray-900 truncate">
-                                  {c.name}
-                                </p>
-                                <p className="text-xs text-gray-500">
-                                  {formatDateTimeShort(c.createdAt)}
-                                </p>
-                              </div>
-                            </div>
-
-                            {c.text?.trim() && (
-                              <p className="text-sm text-gray-700 mt-2">
-                                {c.text}
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-gray-900 truncate">
+                                {c.name}
                               </p>
-                            )}
+                              <p className="text-xs text-gray-500">
+                                {formatDateTimeShort(c.createdAt)}
+                              </p>
+                            </div>
                           </div>
-                        ))
-                      )}
-                    </div>
-                  )}
-                </div>
+
+                          {c.text?.trim() && (
+                            <p className="text-sm text-gray-700 mt-2">
+                              {c.text}
+                            </p>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
-        )}
-
-        {/* spacing bottom */}
-        <div className="h-10" />
-      </div>
+        </div>
+      )}
     </>
   );
 }

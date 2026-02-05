@@ -16,8 +16,8 @@ type Article = {
   id: number;
   title: string;
   description: string;
+  image?: string | null; // ✅ ADD: image upload URL
   categories: Category[];
-  image?: string | null;
   tags?: string[];
   author: Author;
   createdAt: string;
@@ -107,6 +107,8 @@ export default function HomePage() {
             id: it.id,
             title: it.title,
             description: it.description ?? it.content ?? "",
+            // ✅ map image from backend (adjust keys if your API uses different field)
+            image: it.image ?? it.imageUrl ?? it.thumbnail ?? it.cover ?? null,
             categories: it.categories ?? [],
             tags: Array.isArray(it.tags) ? it.tags : [],
             author: {
@@ -224,103 +226,115 @@ export default function HomePage() {
         aria-label={`Open post: ${article.title}`}
       >
         <section className="border-b border-neutral-300 bg-white px-4 py-6">
-          <h2 className="text-xl font-bold mb-3">{article.title}</h2>
-
-          {/* tags under title */}
-          {Array.isArray(article.tags) && article.tags.length > 0 && (
-            <div className="flex gap-2 mb-3 flex-wrap">
-              {article.tags.slice(0, 3).map((t) => (
-                <span
-                  key={t}
-                  className="px-3 py-1 text-xs font-medium border border-neutral-300 rounded-xl text-gray-700 bg-white"
-                >
-                  {t}
-                </span>
-              ))}
-            </div>
-          )}
-
-          {/* categories fallback */}
-          {!article.tags?.length &&
-            Array.isArray(article.categories) &&
-            article.categories.length > 0 && (
-              <div className="flex gap-2 mb-3 flex-wrap">
-                {article.categories.slice(0, 3).map((cat) => (
-                  <span
-                    key={cat.id}
-                    className="px-3 py-1 text-xs font-medium border border-neutral-300 rounded-xl text-gray-700 bg-white"
-                  >
-                    {cat.name}
-                  </span>
-                ))}
+          <div className="flex gap-6">
+            {/* LEFT IMAGE */}
+            {article.image && (
+              <div className="w-[340px] h-[258px] shrink-0 overflow-hidden rounded-xl border border-neutral-200 bg-gray-100">
+                <Image
+                  src={article.image}
+                  alt={article.title}
+                  width={340}
+                  height={258}
+                  className="w-full h-full object-cover"
+                />
               </div>
             )}
 
-          <p className="text-gray-600 text-sm leading-relaxed mb-4 line-clamp-3">
-            {article.description}
-          </p>
+            {/* RIGHT CONTENT */}
+            <div className="flex-1 min-w-0">
+              <h2 className="text-xl font-bold mb-3 line-clamp-2">
+                {article.title}
+              </h2>
 
-          {/* author row */}
-          <div className="flex items-center justify-between text-xs text-gray-500">
-            <div className="flex items-center gap-2 min-w-0">
-              <button
-                type="button"
-                onClick={(e) => openAuthorPosts(e, article.author?.id)}
-                className="w-7 h-7 rounded-full overflow-hidden border bg-white shrink-0"
-                aria-label="Open author posts"
-              >
-                <Image
-                  src="/icons.svg"
-                  alt="Author"
-                  width={28}
-                  height={28}
-                  className="object-cover"
-                />
-              </button>
+              {/* tags */}
+              {Array.isArray(article.tags) && article.tags.length > 0 && (
+                <div className="flex gap-2 mb-3 flex-wrap">
+                  {article.tags.slice(0, 3).map((t) => (
+                    <span
+                      key={t}
+                      className="px-3 py-1 text-xs font-medium border border-neutral-300 rounded-xl text-gray-700 bg-white"
+                    >
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              )}
 
-              <span className="font-medium text-gray-800 truncate">
-                {article.author?.name ||
-                  article.author?.username ||
-                  "Anonymous"}
-              </span>
+              {/* categories fallback */}
+              {!article.tags?.length &&
+                Array.isArray(article.categories) &&
+                article.categories.length > 0 && (
+                  <div className="flex gap-2 mb-3 flex-wrap">
+                    {article.categories.slice(0, 3).map((cat) => (
+                      <span
+                        key={cat.id}
+                        className="px-3 py-1 text-xs font-medium border border-neutral-300 rounded-xl text-gray-700 bg-white"
+                      >
+                        {cat.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
 
-              <span className="w-1 h-1 rounded-full bg-gray-300" />
+              <p className="text-gray-600 text-sm leading-relaxed mb-4 line-clamp-3">
+                {article.description}
+              </p>
 
-              <span className="whitespace-nowrap">
-                {formatDate(article.createdAt)}
-              </span>
+              {/* author */}
+              <div className="flex items-center gap-2 text-xs text-gray-500 mb-4">
+                <button
+                  type="button"
+                  onClick={(e) => openAuthorPosts(e, article.author?.id)}
+                  className="w-7 h-7 rounded-full overflow-hidden border bg-white shrink-0"
+                >
+                  <Image src="/icons.svg" alt="Author" width={28} height={28} />
+                </button>
+
+                <span className="font-medium text-gray-800 truncate">
+                  {article.author?.name ||
+                    article.author?.username ||
+                    "Anonymous"}
+                </span>
+
+                <span className="w-1 h-1 rounded-full bg-gray-300" />
+
+                <span>{formatDate(article.createdAt)}</span>
+              </div>
+
+              {/* actions */}
+              <div className="flex items-center gap-6 text-sm text-gray-700">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    toggleLike(article.id);
+                  }}
+                  className={`flex items-center gap-2 transition ${
+                    isLiked ? "text-blue-600" : "hover:text-blue-600"
+                  }`}
+                >
+                  <Image
+                    src="/like.svg"
+                    alt="Like"
+                    width={16}
+                    height={16}
+                    style={likeIconFilter(isLiked)}
+                  />
+                  <span>{article.likes}</span>
+                </button>
+
+                <span className="flex items-center gap-2">
+                  <Image
+                    src="/comment.svg"
+                    alt="Comments"
+                    width={16}
+                    height={16}
+                  />
+                  {article.comments}
+                </span>
+              </div>
             </div>
-          </div>
-
-          {/* Like & Comment row */}
-          <div className="flex items-center gap-6 mt-4 text-sm text-gray-700">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                toggleLike(article.id);
-              }}
-              className={`flex items-center gap-2 transition ${
-                isLiked ? "text-blue-600" : "text-gray-700 hover:text-blue-600"
-              }`}
-              aria-label={isLiked ? "Unlike this post" : "Like this post"}
-            >
-              <Image
-                src="/like.svg"
-                alt="Like"
-                width={16}
-                height={16}
-                className={isLiked ? "opacity-100" : "opacity-80"}
-                style={likeIconFilter(isLiked)}
-              />
-              <span>{article.likes}</span>
-            </button>
-
-            <span className="flex items-center gap-2">
-              <Image src="/comment.svg" alt="Comments" width={16} height={16} />
-              {article.comments}
-            </span>
           </div>
         </section>
       </Link>
